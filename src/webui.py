@@ -2,6 +2,7 @@ import os
 import glob
 import gradio as gr
 import json
+import csv
 import threading
 from step1_audio_split import run_step_1 as internal_run_step_1
 from step2_asr_clean import run_step_2 as internal_run_step_2
@@ -233,8 +234,8 @@ def prepare_ljspeech_dataset(speaker_name, metadata_path, wavs_dir, ref_audio, p
         lines = [line.strip() for line in f_in if line.strip()]
         total = len(lines)
         for idx, line in enumerate(lines):
-            parts = line.split("|", 1)
-            if len(parts) != 2:
+            parts = next(csv.reader([line], delimiter="|"))
+            if len(parts) < 2:
                 skipped += 1
                 continue
             filename, text = parts[0].strip(), parts[1].strip()
@@ -764,7 +765,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         ljspeech_metadata = gr.Textbox(
                             label="Metadata CSV",
                             value="raw-dataset/ljspeech/metadata.csv",
-                            info="Two columns separated by |: filename.wav|text",
+                            info="Pipe-separated metadata: filename.wav|text. Extra columns are ignored.",
                             scale=2,
                         )
                         ljspeech_wavs_dir = gr.Textbox(
