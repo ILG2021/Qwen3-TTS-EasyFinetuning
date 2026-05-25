@@ -9,6 +9,8 @@ __pycache__/
 raw-dataset/
 final-dataset/
 models/
+!src/qwen_tts/core/models/
+!src/qwen_tts/core/models/**
 output/
 logs/
 src/logs/
