@@ -218,6 +218,13 @@ def prepare_ljspeech_dataset(speaker_name, metadata_path, wavs_dir, ref_audio, p
     output_jsonl = os.path.join(speaker_dir, "tts_train.jsonl")
 
     root_dir = get_project_root()
+
+    def portable_path(path):
+        try:
+            return os.path.relpath(path, start=root_dir)
+        except ValueError:
+            return os.path.abspath(path)
+
     written = 0
     skipped = 0
     progress(0.05, desc="Reading LJSpeech metadata...")
@@ -239,9 +246,9 @@ def prepare_ljspeech_dataset(speaker_name, metadata_path, wavs_dir, ref_audio, p
                 skipped += 1
                 continue
             entry = {
-                "audio": os.path.relpath(audio_path, start=root_dir),
+                "audio": portable_path(audio_path),
                 "text": text,
-                "ref_audio": os.path.relpath(ref_path, start=root_dir) if ref_path else "",
+                "ref_audio": portable_path(ref_path) if ref_path else "",
             }
             f_out.write(json.dumps(entry, ensure_ascii=False) + "\n")
             written += 1
@@ -777,7 +784,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
 
             gr.Markdown("<br>")
             
-            with gr.Column(elem_classes="gr-group"):
+            with gr.Column(elem_classes="gr-group", visible=True) as asr_step_group:
                 gr.Markdown("### Step 2: ASR Transcription & Cleaning")
                 gr.Markdown("Transcribes the `audio_24k` folder with a selected ASR model, outputs cleanly to `tts_train.jsonl`.")
                 with gr.Row():
@@ -949,12 +956,13 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
             gr.update(visible=not is_ljspeech),
             gr.update(visible=not is_ljspeech),
             gr.update(visible=is_ljspeech),
+            gr.update(visible=not is_ljspeech),
         )
 
     dataset_format.change(
         fn=on_dataset_format_change,
         inputs=[dataset_format],
-        outputs=[input_dir, ref_audio, num_threads, skip_split, raw_step1_actions, ljspeech_inputs],
+        outputs=[input_dir, ref_audio, num_threads, skip_split, raw_step1_actions, ljspeech_inputs, asr_step_group],
     )
 
     def refresh_step1_paths():
