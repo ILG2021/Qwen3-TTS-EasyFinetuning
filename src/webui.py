@@ -1050,4 +1050,4 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
 
 if __name__ == "__main__":
     os.environ["NO_PROXY"] = "localhost,127.0.0.1,0.0.0.0,::1"
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    app.launch(server_name="127.0.0.1", server_port=7860, share=False)
