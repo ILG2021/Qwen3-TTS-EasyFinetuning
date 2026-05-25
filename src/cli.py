@@ -213,7 +213,7 @@ def cmd_train(args):
         "keep_last_n_checkpoints": args.keep_last_n_checkpoints,
         "use_accelerator": args.use_accelerator,
     }
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=4)
 
     use_hf = args.model_source == "HuggingFace"

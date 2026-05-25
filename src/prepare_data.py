@@ -50,8 +50,8 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
             device_map=device,
         )
 
-        total_lines = open(input_jsonl).readlines()
-        total_lines = [json.loads(line.strip()) for line in total_lines]
+        with open(input_jsonl, "r", encoding="utf-8") as f:
+            total_lines = [json.loads(line.strip()) for line in f if line.strip()]
         total_count = len(total_lines)
 
         final_lines = []
@@ -98,7 +98,7 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
         yield {"type": "progress", "progress": 0.95, "desc": "Saving JSONL output..."}
         final_lines = [json.dumps(line, ensure_ascii=False) for line in final_lines]
 
-        with open(output_jsonl, 'w') as f:
+        with open(output_jsonl, 'w', encoding="utf-8") as f:
             for line in final_lines:
                 f.writelines(line + '\n')
                 
