@@ -196,6 +196,61 @@ def run_step_1(input_dir, speaker_name, ref_audio, num_threads=6, skip_split=Fal
     )
     yield from stream_worker_updates(stream, progress)
 
+
+def prepare_ljspeech_dataset(speaker_name, metadata_path, wavs_dir, ref_audio, progress=gr.Progress()):
+    speaker, error = _normalize_single_speaker_name(speaker_name, "Please specify a Speaker Name first.")
+    if error:
+        return error
+
+    metadata_path = resolve_path(metadata_path)
+    wavs_dir = resolve_path(wavs_dir)
+    ref_path = resolve_path(ref_audio) if ref_audio else ""
+
+    if not os.path.exists(metadata_path):
+        return f"Error: Metadata file not found: {metadata_path}"
+    if not os.path.isdir(wavs_dir):
+        return f"Error: WAV directory not found: {wavs_dir}"
+    if ref_path and not os.path.exists(ref_path):
+        return f"Error: Reference audio not found: {ref_path}"
+
+    speaker_dir = resolve_path(os.path.join("final-dataset", speaker))
+    os.makedirs(speaker_dir, exist_ok=True)
+    output_jsonl = os.path.join(speaker_dir, "tts_train.jsonl")
+
+    root_dir = get_project_root()
+    written = 0
+    skipped = 0
+    progress(0.05, desc="Reading LJSpeech metadata...")
+
+    with open(metadata_path, "r", encoding="utf-8-sig") as f_in, open(output_jsonl, "w", encoding="utf-8") as f_out:
+        lines = [line.strip() for line in f_in if line.strip()]
+        total = len(lines)
+        for idx, line in enumerate(lines):
+            parts = line.split("|", 1)
+            if len(parts) != 2:
+                skipped += 1
+                continue
+            filename, text = parts[0].strip(), parts[1].strip()
+            if not filename or not text:
+                skipped += 1
+                continue
+            audio_path = os.path.join(wavs_dir, filename)
+            if not os.path.exists(audio_path):
+                skipped += 1
+                continue
+            entry = {
+                "audio": os.path.relpath(audio_path, start=root_dir),
+                "text": text,
+                "ref_audio": os.path.relpath(ref_path, start=root_dir) if ref_path else "",
+            }
+            f_out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            written += 1
+            if idx % 200 == 0:
+                progress(0.05 + 0.9 * (idx / max(total, 1)), desc=f"Converting metadata {idx + 1}/{total}")
+
+    progress(1.0, desc="LJSpeech metadata ready")
+    return f"Success: wrote {written} entries to {output_jsonl}. Skipped {skipped} row(s). You can now run Step 3 tokenization."
+
 # ----------------- Step 2: ASR Transcription -----------------
 def run_step_2(speaker_name, asr_model, asr_source, gpu_id, progress=gr.Progress()):
     speaker, error = _normalize_single_speaker_name(speaker_name, "Please specify a Speaker Name first.")
@@ -653,7 +708,8 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
             gr.Markdown("Autonomously clean, split, transcribe, and ready your data.")
             
             with gr.Column(elem_classes="gr-group"):
-                gr.Markdown("### Step 1: Audio Split and Silence Filter")
+                gr.Markdown("### Step 1: Dataset Input")
+                dataset_format = gr.Radio(["Raw WAV Folder", "LJSpeech Metadata"], label="Dataset Format", value="Raw WAV Folder")
                 gr.Markdown("Reads the raw `.wav` folder and extracts chunks by filtering out silences, then resamples into an `audio_24k` folder.")
                 with gr.Row():
                     global_speaker_input = gr.Textbox(
@@ -691,10 +747,33 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         scale=1,
                     )
                 
-                with gr.Row():
+                with gr.Row(visible=True) as raw_step1_actions:
                     step1_btn = gr.Button("▶️ Run Step 1: Audio Split & Ref Process", variant="primary", scale=4)
                     step1_refresh_btn = gr.Button("🔄 Refresh Paths", scale=1)
                 step1_out = gr.Textbox(label="Step 1 Output", lines=1)
+
+                with gr.Column(visible=False) as ljspeech_inputs:
+                    with gr.Row():
+                        ljspeech_metadata = gr.Textbox(
+                            label="Metadata CSV",
+                            value="raw-dataset/ljspeech/metadata.csv",
+                            info="Two columns separated by |: filename.wav|text",
+                            scale=2,
+                        )
+                        ljspeech_wavs_dir = gr.Textbox(
+                            label="WAV Directory",
+                            value="raw-dataset/ljspeech/wavs",
+                            info="Directory containing files named in metadata",
+                            scale=2,
+                        )
+                        ljspeech_ref_audio = gr.Textbox(
+                            label="Reference Audio",
+                            value="raw-dataset/ljspeech/wavs/LJ001-0001.wav",
+                            info="Optional speaker reference audio",
+                            scale=2,
+                        )
+                    ljspeech_btn = gr.Button("Create LJSpeech JSONL", variant="primary")
+                    ljspeech_out = gr.Textbox(label="LJSpeech Output", lines=1)
 
             gr.Markdown("<br>")
             
@@ -861,6 +940,23 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
     train_btn.click(fn=start_training, inputs=train_btn_inputs, outputs=[train_status, log_box])
     
     # Step 1
+    def on_dataset_format_change(fmt):
+        is_ljspeech = fmt == "LJSpeech Metadata"
+        return (
+            gr.update(visible=not is_ljspeech),
+            gr.update(visible=not is_ljspeech),
+            gr.update(visible=not is_ljspeech),
+            gr.update(visible=not is_ljspeech),
+            gr.update(visible=not is_ljspeech),
+            gr.update(visible=is_ljspeech),
+        )
+
+    dataset_format.change(
+        fn=on_dataset_format_change,
+        inputs=[dataset_format],
+        outputs=[input_dir, ref_audio, num_threads, skip_split, raw_step1_actions, ljspeech_inputs],
+    )
+
     def refresh_step1_paths():
         return gr.update(choices=get_raw_datasets()), gr.update(choices=get_ref_audios())
     
@@ -879,6 +975,12 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
         fn=run_step_1,
         inputs=[input_dir, global_speaker_input, ref_audio, num_threads, skip_split],
         outputs=[step1_out]
+    )
+
+    ljspeech_btn.click(
+        fn=prepare_ljspeech_dataset,
+        inputs=[global_speaker_input, ljspeech_metadata, ljspeech_wavs_dir, ljspeech_ref_audio],
+        outputs=[ljspeech_out],
     )
 
     # Step 2
