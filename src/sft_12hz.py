@@ -25,6 +25,7 @@ from contextlib import nullcontext
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 from dataset import TTSDataset
 from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel
 from safetensors.torch import save_file
@@ -32,6 +33,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import AutoConfig
+from utils import get_attn_implementation
 
 try:
     from accelerate import Accelerator
@@ -412,7 +414,7 @@ def run_train(
         qwen3tts = Qwen3TTSModel.from_pretrained(
             MODEL_PATH,
             torch_dtype=torch.bfloat16,
-            attn_implementation="flash_attention_2",
+            attn_implementation=get_attn_implementation(device),
         )
         config = AutoConfig.from_pretrained(MODEL_PATH)
         with open(os.path.join(MODEL_PATH, "config.json"), "r", encoding="utf-8") as f:
@@ -609,7 +611,8 @@ def run_train(
                         per_sample_embeddings = []
                         batch_speaker_ids = batch["speaker_ids"]
                         for b_idx, ref_mel in enumerate(ref_mels_list):
-                            emb = unwrap_model.speaker_encoder(ref_mel.to(model_device).to(model_dtype)).detach()
+                            with torch.no_grad():
+                                emb = unwrap_model.speaker_encoder(ref_mel.to(model_device).to(model_dtype)).detach()
                             per_sample_embeddings.append(emb)
 
                             sid = batch_speaker_ids[b_idx]
@@ -625,9 +628,10 @@ def run_train(
                         input_text_ids = input_ids[:, :, 0]
                         input_codec_ids = input_ids[:, :, 1]
 
-                        input_text_embedding = unwrap_model.talker.text_projection(
-                            unwrap_model.talker.get_text_embeddings()(input_text_ids)
-                        ) * text_embedding_mask
+                        input_text_embedding = unwrap_model.talker.model.text_embedding(input_text_ids)
+                        if hasattr(unwrap_model.talker, "text_projection"):
+                            input_text_embedding = unwrap_model.talker.text_projection(input_text_embedding)
+                        input_text_embedding = input_text_embedding * text_embedding_mask
                         input_codec_embedding = (
                             unwrap_model.talker.model.codec_embedding(input_codec_ids) * codec_embedding_mask
                         )
@@ -645,17 +649,23 @@ def run_train(
                         outputs = unwrap_model.talker(
                             inputs_embeds=input_embeddings[:, :-1, :],
                             attention_mask=attention_mask[:, :-1],
-                            labels=codec_0_labels[:, 1:],
+                            labels=None,
                             output_hidden_states=True,
+                        )
+                        codec_0_targets = codec_0_labels[:, 1:]
+                        codec_0_loss = F.cross_entropy(
+                            outputs.logits.reshape(-1, outputs.logits.size(-1)),
+                            codec_0_targets.reshape(-1),
+                            ignore_index=-100,
                         )
 
                         hidden_states = outputs.hidden_states[0][-1]
-                        talker_hidden_states = hidden_states[codec_mask[:, :-1]]
+                        talker_hidden_states = hidden_states[codec_mask[:, 1:]]
                         talker_codec_ids = codec_ids[codec_mask]
                         _, sub_talker_loss = unwrap_model.talker.forward_sub_talker_finetune(
                             talker_codec_ids, talker_hidden_states
                         )
-                        loss = outputs.loss + 0.3 * sub_talker_loss
+                        loss = codec_0_loss + 0.3 * sub_talker_loss
 
                     if args.use_accelerator:
                         accelerator.backward(loss)
@@ -688,7 +698,7 @@ def run_train(
                         epoch_progress=epoch_progress,
                     )
                     writer.add_scalar("train/loss", loss.item(), global_step)
-                    writer.add_scalar("train/talker_loss", outputs.loss.item(), global_step)
+                    writer.add_scalar("train/talker_loss", codec_0_loss.item(), global_step)
                     writer.add_scalar("train/sub_talker_loss", sub_talker_loss.item(), global_step)
                     writer.add_scalar("train/lr", optimizer.param_groups[0]["lr"], global_step)
                     writer.add_scalar("train/epoch", current_epoch_float, global_step)

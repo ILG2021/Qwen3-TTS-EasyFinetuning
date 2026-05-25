@@ -16,7 +16,7 @@ import sys
 import json
 import time
 import argparse
-from utils import get_model_path, get_project_root, resolve_path, resolve_speaker_choice
+from utils import get_attn_implementation, get_model_path, get_project_root, resolve_path, resolve_speaker_choice, start_tensorboard
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -160,7 +160,7 @@ def cmd_tokenize(args):
             print(f"  ❌ File {input_jsonl} not found.")
             sys.exit(1)
     
-    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=False)
+    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=True)
     device = "cuda:0" if args.gpu != "cpu" else "cpu"
     
     consume_generator(run_prepare(device, resolved_tokenizer, input_jsonl, output_codes_jsonl))
@@ -168,8 +168,6 @@ def cmd_tokenize(args):
 
 def cmd_train(args):
     """Run fine-tuning training (supports multi-speaker)."""
-    import subprocess
-
     print_header("🏋️ Qwen3-TTS Fine-tuning")
     
     # Parse speaker names
@@ -223,11 +221,7 @@ def cmd_train(args):
 
     # Start TensorBoard
     print_step("Starting TensorBoard on port 6006...")
-    try:
-        subprocess.check_output(["pgrep", "-f", "tensorboard --logdir logs"]).decode().strip()
-    except subprocess.CalledProcessError:
-        subprocess.Popen(["tensorboard", "--logdir", "logs", "--port", "6006", "--bind_all"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    start_tensorboard(logdir="logs", port=6006)
 
     # Run training
     print_step(f"Training started on {args.gpu}...")
@@ -275,7 +269,7 @@ def cmd_infer(args):
     checkpoint_path = resolve_path(args.checkpoint)
     if not os.path.exists(checkpoint_path):
         # Try resolving via get_model_path if not a direct file path
-        checkpoint_path = get_model_path(args.checkpoint, use_hf=False)
+        checkpoint_path = get_model_path(args.checkpoint, use_hf=True)
         if not os.path.exists(checkpoint_path):
             print(f"\n  ❌ Checkpoint not found: {args.checkpoint}")
             sys.exit(1)
@@ -291,7 +285,7 @@ def cmd_infer(args):
         args.checkpoint,
         device_map=args.gpu,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2" if "cuda" in args.gpu else None,
+        attn_implementation=get_attn_implementation(args.gpu),
     )
     print(f"    Model loaded in {time.time() - start:.2f}s")
 
@@ -323,7 +317,7 @@ def cmd_query(args):
     print(f"  GPU Device   : {args.gpu}")
 
     if not os.path.exists(args.checkpoint):
-        resolved = get_model_path(args.checkpoint, use_hf=False)
+        resolved = get_model_path(args.checkpoint, use_hf=True)
         if not os.path.exists(resolved):
             print(f"\n  ❌ Checkpoint not found: {args.checkpoint}")
             sys.exit(1)
@@ -335,7 +329,7 @@ def cmd_query(args):
         args.checkpoint,
         device_map=args.gpu,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2" if "cuda" in args.gpu else None,
+        attn_implementation=get_attn_implementation(args.gpu),
     )
 
     print_step("Querying capabilities...")
@@ -396,7 +390,7 @@ Examples:
     p_prepare.add_argument("--ref_audio", type=str, default=None, help="Path to reference audio file (optional)")
     p_prepare.add_argument("--asr_model", type=str, default="Qwen/Qwen3-ASR-1.7B", help="ASR model ID")
     p_prepare.add_argument("--batch_size", type=int, default=16, help="ASR batch size")
-    p_prepare.add_argument("--model_source", type=str, choices=["HuggingFace", "ModelScope"], default="HuggingFace", help="Model download source")
+    p_prepare.add_argument("--model_source", type=str, choices=["HuggingFace"], default="HuggingFace", help="Model download source")
     p_prepare.add_argument("--gpu", type=str, default="cuda:0", help="GPU device (e.g., cuda:0, cpu)")
     p_prepare.add_argument("--threads", type=int, default=6, help="Number of threads for audio split")
     p_prepare.add_argument("--skip_split", action="store_true", help="Skip segmentation and only resample each input wav to 24k")
@@ -414,7 +408,7 @@ Examples:
     p_asr.add_argument("--speaker_name", type=str, required=True)
     p_asr.add_argument("--asr_model", type=str, default="Qwen/Qwen3-ASR-1.7B")
     p_asr.add_argument("--batch_size", type=int, default=16)
-    p_asr.add_argument("--model_source", type=str, choices=["HuggingFace", "ModelScope"], default="HuggingFace")
+    p_asr.add_argument("--model_source", type=str, choices=["HuggingFace"], default="HuggingFace")
     p_asr.add_argument("--gpu", type=str, default="cuda:0")
 
     # ── tokenize (Step 3) ──
@@ -428,7 +422,7 @@ Examples:
     p_train.add_argument("--experiment_name", type=str, required=True, help="Name for this experiment")
     p_train.add_argument("--speaker_name", type=str, required=True, help="Speaker name(s), comma-separated for multi-speaker")
     p_train.add_argument("--init_model", type=str, default="Qwen/Qwen3-TTS-12Hz-0.6B-Base", help="Base model ID")
-    p_train.add_argument("--model_source", type=str, choices=["HuggingFace", "ModelScope"], default="HuggingFace", help="Model download source")
+    p_train.add_argument("--model_source", type=str, choices=["HuggingFace"], default="HuggingFace", help="Model download source")
     p_train.add_argument("--batch_size", type=int, default=2, help="Training batch size")
     p_train.add_argument("--lr", type=float, default=1e-7, help="Learning rate")
     p_train.add_argument("--epochs", type=int, default=2, help="Number of training epochs")

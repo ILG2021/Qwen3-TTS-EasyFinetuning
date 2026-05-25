@@ -3,7 +3,6 @@
 # Tag and Registry Settings
 TAG=${1:-latest}
 GHCR_IMAGE="ghcr.io/mozi1924/qwen3-tts-easyfinetuning"
-ALIYUN_IMAGE="registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning"
 
 echo "🚀 Starting local build and push for $TAG"
 
@@ -31,13 +30,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 3. Tag for Alibaba Cloud and Latest
+# 3. Tag latest if needed
 echo "🏷️  Tagging images..."
-docker tag "$GHCR_IMAGE:$TAG" "$ALIYUN_IMAGE:$TAG"
 
 if [ "$TAG" != "latest" ]; then
     docker tag "$GHCR_IMAGE:$TAG" "$GHCR_IMAGE:latest"
-    docker tag "$GHCR_IMAGE:$TAG" "$ALIYUN_IMAGE:latest"
 fi
 
 # 4. Push to GHCR
@@ -47,16 +44,9 @@ if [ "$TAG" != "latest" ]; then
     docker push "$GHCR_IMAGE:latest"
 fi
 
-# 5. Push to Alibaba Cloud
-echo "⬆️  Pushing to Alibaba Cloud Registry..."
-docker push "$ALIYUN_IMAGE:$TAG"
-if [ "$TAG" != "latest" ]; then
-    docker push "$ALIYUN_IMAGE:latest"
-fi
-
 if [ $? -ne 0 ]; then
     echo "❌ Push failed!"
-    echo "💡 Make sure you are logged in to both registries."
+    echo "Make sure you are logged in to GHCR."
     rm build_info.json
     exit 1
 fi
@@ -64,4 +54,5 @@ fi
 # Cleanup
 rm build_info.json
 
-echo "✅ Successfully pushed $TAG to GHCR and Aliyun!"
+echo "Successfully pushed $TAG to GHCR!"
+

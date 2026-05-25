@@ -1,6 +1,10 @@
 import os
+import platform
 import re
 import shutil
+import socket
+import subprocess
+import sys
 
 
 def get_project_root():
@@ -96,7 +100,7 @@ def is_model_downloaded(model_id):
 
 
 
-def get_model_path(model_id, use_hf=False):
+def get_model_path(model_id, use_hf=True):
     resolved_input = resolve_path(model_id)
     if os.path.exists(resolved_input):
         return resolved_input
@@ -111,16 +115,70 @@ def get_model_path(model_id, use_hf=False):
     print(f'Downloading model {model_id} into {local_dir}...')
     os.makedirs(os.path.dirname(local_dir), exist_ok=True)
     try:
-        if use_hf:
-            from huggingface_hub import snapshot_download
-            downloaded_path = snapshot_download(repo_id=model_id, local_dir=local_dir)
-        else:
-            from modelscope import snapshot_download
-            downloaded_path = snapshot_download(model_id, cache_dir=os.path.join(get_project_root(), 'models'))
+        from huggingface_hub import snapshot_download
+        downloaded_path = snapshot_download(repo_id=model_id, local_dir=local_dir)
         return _ensure_shared_model_dir(model_id, downloaded_path)
     except Exception as e:
         print(f'Warning: Download failed, falling back to id: {e}')
         return model_id
+
+
+def is_windows():
+    return platform.system().lower() == "windows"
+
+
+def is_flash_attention_available():
+    if is_windows():
+        return False
+    try:
+        import flash_attn  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def get_attn_implementation(device=None):
+    device_text = str(device or "").lower()
+    if device_text == "cpu":
+        return None
+    return "flash_attention_2" if is_flash_attention_available() else None
+
+
+def is_port_open(port, host="127.0.0.1"):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex((host, int(port))) == 0
+
+
+def start_tensorboard(logdir="logs", port=6006):
+    if is_port_open(port):
+        return None
+    cmd = [
+        sys.executable,
+        "-m",
+        "tensorboard.main",
+        "--logdir",
+        logdir,
+        "--port",
+        str(port),
+        "--host",
+        "0.0.0.0",
+    ]
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def stop_tensorboard_process(process=None, port=6006):
+    if process is not None and process.poll() is None:
+        process.terminate()
+        return True
+    if not is_port_open(port):
+        return False
+    if is_windows():
+        subprocess.run(["taskkill", "/F", "/IM", "tensorboard.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq tensorboard*"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["pkill", "-f", f"tensorboard.*--port {port}"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True
 
 
 def speaker_key(value):

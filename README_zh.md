@@ -50,14 +50,11 @@
 - **GPU**: NVIDIA 显卡，显存 >= 16 GB (1.7B 模型建议 24 GB)
 - **内存**: >= 32 GB RAM
 - **存储**: SSD 固态硬盘，剩余空间至少 50 GB
-- **系统**: Linux (推荐 Ubuntu 20.04+)
+- **系统**: Linux / Windows 10/11 原生 Python / WSL2
 - **软件**: CUDA 12.4+ (推荐 v12.8+), Python 3.10+
 
-> **⚠️ Windows 用户特别注意（关于 GPU 训练）:**
-> 由于底层架构限制，在 Windows 平台下强依赖 GPU 时，请**避免使用 Rancher Desktop**（无法原生支持 Nvidia GPU）。请选择以下三种方案之一：
-> 1. **在真实的 Linux GPU 主机上运行**（最推荐，性能最好，最稳定）。
-> 2. **使用原生的 WSL2 (Ubuntu) 环境**（推荐，通过 WSL2 直接运行原生 Docker Engine 或配置原生 Python 环境，可无缝调用 GPU）。
-> 3. **使用 Docker Desktop**（支持 GPU，但需注意 Docker Desktop 本身的性能开销极大，且不保证在所有 Windows 环境下绝对可用/稳定）。
+> **Windows GPU 说明:**
+> Windows 原生 Python 现已支持。请先安装支持 CUDA 的 PyTorch；Windows 下跳过 Flash Attention，程序会自动回退到默认 attention 后端。GPU 训练请避免使用 Rancher Desktop。
 
 ---
 
@@ -67,12 +64,7 @@
 
 **使用 Docker (推荐)**
 ```bash
-# 中国大陆用户可以使用阿里云镜像源以获得极速下载体验：
-# (Linux)
-DOCKER_IMAGE=registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest docker compose up -d
 
-# (Windows PowerShell)
-$env:DOCKER_IMAGE="registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest"; docker compose up -d
 
 # 如果需要强制本地构建
 docker compose up -d --build
@@ -80,14 +72,24 @@ docker compose up -d --build
 
 **使用 Python 虚拟环境**
 ```bash
-# 不推荐在 Windows 上运行，该方法在Windows下并未得到积极的维护和测试，请使用Docker，这是最高效、最稳定、最便捷的推荐方法。
 
 python -m venv venv
 source venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# 安装与您的 CUDA/Torch 版本匹配的 Flash Attention
+# Linux only: install Flash Attention matching your CUDA/Torch version
 pip install flash-attn==2.8.3 --no-build-isolation
+
+```
+**Windows PowerShell**
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt
+python src/webui.py
 ```
 
 ### 2. 使用 WebUI (最简便)

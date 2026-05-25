@@ -5,7 +5,6 @@ import glob
 import re
 from pydub import AudioSegment, silence
 from tqdm import tqdm
-from qwen_asr import Qwen3ASRModel
 
 EDGE_SILENCE_MS = 200
 FADE_MS = 40
@@ -123,6 +122,11 @@ def split_audio(audio_path, output_dir_base, filename_prefix, max_duration_ms=15
     return segment_paths
 
 def run_pipeline(input_dir, ref_audio, output_dir, model_id="Qwen/Qwen3-ASR-1.7B", batch_size=16, progress=None, speaker_id=None, skip_split=False):
+    try:
+        from qwen_asr import Qwen3ASRModel
+    except ImportError:
+        return False, "qwen-asr is not installed. Install qwen-asr to use automatic transcription, or provide labeled JSONL data manually."
+
     audio_out_dir = os.path.join(output_dir, "audio")
     audio_24k_dir = os.path.join(output_dir, "audio_24k")
     os.makedirs(audio_out_dir, exist_ok=True)

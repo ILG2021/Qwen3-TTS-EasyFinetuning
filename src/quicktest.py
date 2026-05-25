@@ -3,6 +3,7 @@ import time
 import torch
 import soundfile as sf
 from qwen_tts import Qwen3TTSModel
+from utils import get_attn_implementation
 
 @torch.no_grad()
 def run():
@@ -21,7 +22,7 @@ def run():
         args.model_path,
         device_map=args.device,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation=get_attn_implementation(args.device),
     )
     print(f"Model loaded in {time.time() - start_time:.2f} seconds.")
 

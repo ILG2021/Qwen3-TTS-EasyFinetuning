@@ -18,12 +18,14 @@ import argparse
 import json
 import sys
 import gc
+import soundfile as sf
 import torch
 
 from qwen_tts import Qwen3TTSTokenizer
 from utils import resolve_path
 
 BATCH_INFER_NUM = 32
+TARGET_SR = 24000
 
 def log_progress(progress, desc):
     print(json.dumps({"type": "progress", "progress": progress, "desc": desc}), flush=True)
@@ -33,6 +35,12 @@ def log_done(msg):
 
 def log_error(msg):
     print(json.dumps({"type": "error", "msg": msg}), flush=True)
+
+
+def get_audio_info(path):
+    path = resolve_path(path)
+    info = sf.info(path)
+    return path, info.samplerate, info.channels
 
 def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
     try:
@@ -50,11 +58,19 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
         batch_lines = []
         batch_audios = []
         
+        non_24k_count = 0
+        non_mono_count = 0
+
         yield {"type": "progress", "progress": 0.1, "desc": f"Starting tokenization of {total_count} files..."}
         
         for idx, line in enumerate(total_lines):
-            # Convert to absolute paths for tokenization and robust storage
-            line['audio'] = resolve_path(line['audio'])
+            # Convert to absolute paths for tokenization and robust storage. The tokenizer
+            # resamples audio in memory, so we do not duplicate large datasets on disk.
+            line['audio'], sr, channels = get_audio_info(line['audio'])
+            if sr != TARGET_SR:
+                non_24k_count += 1
+            if channels != 1:
+                non_mono_count += 1
             if line.get('ref_audio'):
                 line['ref_audio'] = resolve_path(line['ref_audio'])
                 
@@ -86,7 +102,13 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
             for line in final_lines:
                 f.writelines(line + '\n')
                 
-        yield {"type": "done", "msg": f"Successfully tokenized {len(final_lines)} entries."}
+        audio_msg = ""
+        if non_24k_count or non_mono_count:
+            audio_msg = (
+                f" Tokenizer handled {non_24k_count} non-24k file(s)"
+                f" and {non_mono_count} non-mono file(s) in memory."
+            )
+        yield {"type": "done", "msg": f"Successfully tokenized {len(final_lines)} entries.{audio_msg}"}
     except Exception as e:
         yield {"type": "error", "msg": f"Error during tokenization: {str(e)}"}
     finally:

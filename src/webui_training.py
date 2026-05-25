@@ -8,6 +8,28 @@ import gradio as gr
 from utils import resolve_path
 
 
+TRAINING_PRESETS = {
+    "0.6B Model": {
+        "init_model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        "lr": 1e-7,
+        "epochs": 2,
+        "batch_size": 2,
+        "grad_acc": 4,
+    },
+    "1.7B Model": {
+        "init_model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        "lr": 2e-6,
+        "epochs": 3,
+        "batch_size": 2,
+        "grad_acc": 1,
+    },
+    "Latest Config": {},
+}
+
+
+DEFAULT_PRESET_NAME = "0.6B Model"
+
+
 def checkpoint_sort_key(output_path, exp_name, checkpoint_name):
     checkpoint_dir = os.path.join(output_path, exp_name, checkpoint_name)
     trainer_state_path = os.path.join(checkpoint_dir, "trainer_state.json")
@@ -185,6 +207,7 @@ def get_deeplink_state(request: gr.Request):
 def load_experiment_config(experiment_name):
     config_path = os.path.join("output", experiment_name, "training_config.json")
     checkpoint_choices = gr.update(choices=get_checkpoints(experiment_name=experiment_name, include_specials=True))
+    default_preset = TRAINING_PRESETS[DEFAULT_PRESET_NAME]
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
@@ -193,11 +216,11 @@ def load_experiment_config(experiment_name):
             preset = "Latest Config"
             return (
                 preset,
-                data.get("init_model", "Qwen/Qwen3-TTS-12Hz-0.6B-Base"),
+                data.get("init_model", default_preset["init_model"]),
                 data.get("batch_size", 2),
-                data.get("lr", 1e-7),
-                data.get("epochs", 2),
-                data.get("grad_acc", 4),
+                data.get("lr", default_preset["lr"]),
+                data.get("epochs", default_preset["epochs"]),
+                data.get("grad_acc", default_preset["grad_acc"]),
                 data.get("speaker_name", "").split(",") if data.get("speaker_name") else [],
                 data.get("use_experimental_speedup", False),
                 data.get("resume_from_checkpoint", "latest"),
@@ -236,14 +259,14 @@ def on_new_experiment(name, get_experiments_fn):
         os.makedirs(output_dir, exist_ok=True)
         return [
             gr.update(choices=get_experiments_fn(), value=name),
-            gr.update(value=""),
-            "0.6B Model",
-            "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-            2,
-            "1e-7",
-            2,
-            4,
-            [],
+        gr.update(value=""),
+        DEFAULT_PRESET_NAME,
+        default_preset["init_model"],
+        default_preset["batch_size"],
+        str(default_preset["lr"]),
+        default_preset["epochs"],
+        default_preset["grad_acc"],
+        [],
             False,
             "latest",
             "both",

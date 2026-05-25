@@ -56,14 +56,11 @@ To ensure stable training and avoid Out-of-Memory (OOM) errors, we recommend:
 - **GPU**: NVIDIA GPU with >= 16 GB VRAM (24 GB recommended for 1.7B model)
 - **Memory**: >= 32 GB RAM
 - **Storage**: SSD with at least 50 GB free space
-- **OS**: Linux (Ubuntu 20.04+ recommended)
+- **OS**: Linux (Ubuntu 20.04+ recommended), Windows 10/11 native Python, or WSL2
 - **Software**: CUDA 12.4+ (v12.8+ recommended), Python 3.10+
 
-> **⚠️ Special Note for Windows Users (GPU Training):**
-> Due to architectural limitations, **do not use Rancher Desktop** if you require GPU support on Windows, as it lacks native Nvidia GPU capabilities. Instead, choose one of the following:
-> 1. **Run on a native Linux GPU host** (Highly Recommended: best performance and stability).
-> 2. **Use pure WSL2 (Ubuntu)** (Recommended: install native Docker Engine or Python in WSL2 for seamless GPU access).
-> 3. **Use Docker Desktop** (Supports GPU, but comes with significant performance overhead and is not guaranteed to be perfectly stable/usable on all Windows configurations).
+> **Windows GPU Note:**
+> Native Windows Python is supported. Install a CUDA-enabled PyTorch build first, and skip Flash Attention on Windows; the app automatically falls back to the default attention backend. Avoid Rancher Desktop for GPU workloads because it does not provide native Nvidia GPU support.
 
 ---
 
@@ -76,27 +73,29 @@ To ensure stable training and avoid Out-of-Memory (OOM) errors, we recommend:
 # Pull the pre-built image from GHCR (Default)
 docker compose up -d
 
-# For users in mainland China, use the Aliyun mirror for faster downloads:
-# (Linux)
-DOCKER_IMAGE=registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest docker compose up -d
-
-# (Windows PowerShell)
-$env:DOCKER_IMAGE="registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest"; docker compose up -d
-
 # Force a local build
 docker compose up -d --build
 ```
 
 **Using Python Virtual Environment**
 ```bash
-# Running this directly in a Windows environment is not actively maintained and is not planned for further maintenance. Please use Docker, which is the fastest, most stable, and most efficient recommended method.
-
 python -m venv venv
 source venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Flash Attention matching your CUDA/Torch version
+# Linux only: install Flash Attention matching your CUDA/Torch version
 pip install flash-attn==2.8.3 --no-build-isolation
+```
+
+**Windows PowerShell**
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt
+python src/webui.py
 ```
 
 ### 2. Using the WebUI (Easiest)

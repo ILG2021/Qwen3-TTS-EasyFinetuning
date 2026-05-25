@@ -5,7 +5,6 @@ import glob
 import torch
 import gc
 from tqdm import tqdm
-from qwen_asr import Qwen3ASRModel
 
 from utils import get_project_root
 
@@ -20,6 +19,15 @@ def log_error(msg):
 
 def run_step_2(input_dir, ref_audio, output_jsonl, model_id="Qwen/Qwen3-ASR-1.7B", batch_size=16):
     try:
+        try:
+            from qwen_asr import Qwen3ASRModel
+        except ImportError:
+            yield {
+                "type": "error",
+                "msg": "qwen-asr is not installed. Install qwen-asr to use automatic transcription, or provide labeled JSONL data manually.",
+            }
+            return
+
         yield {"type": "progress", "progress": 0.01, "desc": f"Loading ASR Model: {model_id}..."}
         
         kwargs = {"dtype": torch.bfloat16, "device_map": "auto"}

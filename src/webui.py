@@ -1,6 +1,5 @@
 import os
 import glob
-import subprocess
 import gradio as gr
 import json
 import threading
@@ -13,7 +12,16 @@ import time
 import torch
 import gc
 import sys
-from utils import get_model_path, get_model_local_dir, get_project_root, resolve_path, resolve_speaker_choice
+from utils import (
+    get_attn_implementation,
+    get_model_path,
+    get_model_local_dir,
+    get_project_root,
+    resolve_path,
+    resolve_speaker_choice,
+    start_tensorboard,
+    stop_tensorboard_process,
+)
 from webui_training import (
     get_checkpoints,
     normalize_speaker_name,
@@ -27,6 +35,7 @@ from webui_training import (
     stream_worker_updates,
     get_deeplink_state,
     run_with_polling,
+    TRAINING_PRESETS,
 )
 
 def get_build_info():
@@ -64,6 +73,7 @@ global_tts_device = None
 global_training_process = None
 global_inference_busy = False
 global_model_lock = threading.Lock()
+global_tensorboard_process = None
 
 # Removed redundant models_config.json loading as it is not present and presets are hardcoded below
 
@@ -252,7 +262,7 @@ def run_step_3(speaker_name, experiment_name, gpu_id, progress=gr.Progress()):
             yield f"Error: File {input_jsonl} not found. Please run Data Prep Step 1 & 2 first."
             return
 
-    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=False)
+    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=True)
     device = "cuda:0" if gpu_id != "cpu" else "cpu"
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id.replace("cuda:", "") if gpu_id != "cpu" else ""
     stream = stream_isolated(internal_run_prepare, device, resolved_tokenizer, input_jsonl, output_jsonl)
@@ -269,7 +279,7 @@ def check_or_download_model(init_model, model_source, progress=gr.Progress()):
         download_base_model.target_dir = get_model_local_dir(init_model)
         resolved_init_model = run_with_polling(download_base_model, progress, progress_start=0.05, progress_end=0.55, desc_prefix=f"Downloading base model {init_model}")
         def download_tokenizer_model():
-            return get_model_path(tokenizer_model_id, use_hf=False)
+            return get_model_path(tokenizer_model_id, use_hf=True)
         download_tokenizer_model.target_dir = get_model_local_dir(tokenizer_model_id)
         resolved_tokenizer = run_with_polling(download_tokenizer_model, progress, progress_start=0.60, progress_end=0.98, desc_prefix=f"Downloading tokenizer {tokenizer_model_id}")
         progress(1.0, desc="All required models are ready")
@@ -279,19 +289,15 @@ def check_or_download_model(init_model, model_source, progress=gr.Progress()):
         return f"Error downloading model(s): {e}"
 
 def check_tb():
-    def is_process_running(process_name):
-        try:
-            output = subprocess.check_output(["pgrep", "-f", process_name]).decode().strip()
-            return bool(output)
-        except subprocess.CalledProcessError:
-            return False
-    if not is_process_running("tensorboard --logdir logs"):
-        subprocess.Popen(["tensorboard", "--logdir", "logs", "--port", "6006", "--bind_all"])
+    global global_tensorboard_process
+    process = start_tensorboard(logdir="logs", port=6006)
+    if process is not None:
+        global_tensorboard_process = process
 
 def stop_tensorboard():
     try:
-        subprocess.run(["pkill", "-f", "tensorboard --logdir logs"], check=False)
-        return "Tensorboard server stopped."
+        stopped = stop_tensorboard_process(global_tensorboard_process, port=6006)
+        return "Tensorboard server stopped." if stopped else "Tensorboard server was not running."
     except Exception as e:
         return f"Error stopping Tensorboard: {e}"
 # ---------------- Training -----------------
@@ -400,7 +406,7 @@ def _load_speakers_from_config(model_path):
     if not model_path:
         return []
     try:
-        config_path = os.path.join(get_model_path(model_path, use_hf=False), "config.json")
+        config_path = os.path.join(get_model_path(model_path, use_hf=True), "config.json")
         if not os.path.exists(config_path):
             return []
         with open(config_path, "r", encoding="utf-8") as f:
@@ -440,14 +446,14 @@ def load_model(model_path, gpu_id):
         if global_tts_model is not None:
             unload_model(force=True)
         try:
-            resolved_model_path = get_model_path(model_path, use_hf=False)
+            resolved_model_path = get_model_path(model_path, use_hf=True)
             print(f"Loading {resolved_model_path} on {gpu_id}...")
             from qwen_tts import Qwen3TTSModel
             global_tts_model = Qwen3TTSModel.from_pretrained(
                 resolved_model_path,
                 device_map=gpu_id,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2" if "cuda" in gpu_id else None,
+                attn_implementation=get_attn_implementation(gpu_id),
             )
             global_tts_model_path = model_path
             global_tts_device = gpu_id
@@ -514,11 +520,7 @@ def refresh_checkpoints():
 
 def refresh_datasets():
     return gr.update(choices=get_datasets())
-presets = {
-    "0.6B Model": { "init_model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base", "lr": 1e-7, "epochs": 2, "batch_size": 2, "grad_acc": 4 },
-    "1.7B Model": { "init_model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base", "lr": 2e-6, "epochs": 3, "batch_size": 2, "grad_acc": 1 },
-    "Latest Config": {}
-}
+presets = TRAINING_PRESETS
 
 def apply_preset(preset_name, experiment_name):
     if preset_name == "Latest Config" and experiment_name:
@@ -708,7 +710,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         scale=2
                     )
                     asr_source = gr.Radio(
-                        ["HuggingFace", "ModelScope"], 
+                        ["HuggingFace"], 
                         label="Download Source", 
                         value="HuggingFace",
                         info="Preferred hub for ASR model",
@@ -744,7 +746,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                 with gr.Row():
                     with gr.Column():    
                         init_model = gr.Dropdown(["Qwen/Qwen3-TTS-12Hz-0.6B-Base", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"], label="Initial Model (Base)", value="Qwen/Qwen3-TTS-12Hz-0.6B-Base", allow_custom_value=True, info="Starting weights")
-                        model_source = gr.Radio(["HuggingFace", "ModelScope"], label="Source", value="HuggingFace")
+                        model_source = gr.Radio(["HuggingFace"], label="Source", value="HuggingFace")
                     with gr.Column():
                         download_btn = gr.Button("⬇️ Check / Download Model", variant="secondary")
                         download_log = gr.Textbox(label="Download Status", lines=1)
