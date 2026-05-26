@@ -19,6 +19,7 @@ import json
 import sys
 import gc
 import os
+import time
 import soundfile as sf
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -96,11 +97,26 @@ def _copy_completed_entries(path, f_out, completed_keys):
     return copied
 
 
+def _copy_completed_entries_if_available(path, f_out, completed_keys):
+    try:
+        return _copy_completed_entries(path, f_out, completed_keys), None
+    except OSError as e:
+        return 0, e
+
+
+def _safe_remove(path):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
 def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl, batch_size=DEFAULT_BATCH_INFER_NUM):
     batch_size = max(1, int(batch_size or DEFAULT_BATCH_INFER_NUM))
     current_batch_size = batch_size
     tmp_output_jsonl = output_jsonl + ".tmp"
-    resume_tmp_jsonl = tmp_output_jsonl + ".resume"
+    run_tmp_jsonl = f"{output_jsonl}.tmp.{os.getpid()}.{int(time.time())}"
 
     try:
         yield {"type": "progress", "progress": 0.05, "desc": f"Loading Tokenizer: {tokenizer_model_path}..."}
@@ -122,18 +138,25 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl, batch_s
 
         yield {"type": "progress", "progress": 0.1, "desc": f"Starting tokenization of {total_count} files with batch size {current_batch_size}..."}
 
-        if os.path.exists(tmp_output_jsonl):
-            if os.path.exists(resume_tmp_jsonl):
-                os.remove(resume_tmp_jsonl)
-            os.replace(tmp_output_jsonl, resume_tmp_jsonl)
+        with open(run_tmp_jsonl, 'w', encoding="utf-8") as f_out:
+            copied, copy_error = _copy_completed_entries_if_available(output_jsonl, f_out, completed_keys)
+            skipped_count += copied
+            if copy_error:
+                yield {
+                    "type": "progress",
+                    "progress": 0.1,
+                    "desc": f"Could not read existing output for resume: {copy_error}",
+                }
 
-        with open(tmp_output_jsonl, 'w', encoding="utf-8") as f_out:
-            skipped_count += _copy_completed_entries(output_jsonl, f_out, completed_keys)
-            skipped_count += _copy_completed_entries(resume_tmp_jsonl, f_out, completed_keys)
+            copied, copy_error = _copy_completed_entries_if_available(tmp_output_jsonl, f_out, completed_keys)
+            skipped_count += copied
+            if copy_error:
+                yield {
+                    "type": "progress",
+                    "progress": 0.1,
+                    "desc": f"Previous temp file is locked; skipping it for this run: {copy_error}",
+                }
             f_out.flush()
-
-            if os.path.exists(resume_tmp_jsonl):
-                os.remove(resume_tmp_jsonl)
 
             if skipped_count:
                 yield {
@@ -229,7 +252,8 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl, batch_s
                 _cleanup_cuda()
 
         yield {"type": "progress", "progress": 0.95, "desc": "Saving JSONL output..."}
-        os.replace(tmp_output_jsonl, output_jsonl)
+        os.replace(run_tmp_jsonl, output_jsonl)
+        _safe_remove(tmp_output_jsonl)
                 
         audio_msg = ""
         if non_24k_count or non_mono_count:
@@ -247,8 +271,7 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl, batch_s
     except Exception as e:
         yield {"type": "error", "msg": f"Error during tokenization: {str(e)}"}
     finally:
-        if os.path.exists(resume_tmp_jsonl):
-            os.remove(resume_tmp_jsonl)
+        _safe_remove(run_tmp_jsonl)
         if 'tokenizer_12hz' in locals():
             del tokenizer_12hz
         _cleanup_cuda()
