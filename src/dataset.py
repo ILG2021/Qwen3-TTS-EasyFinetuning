@@ -101,7 +101,7 @@ class TTSDataset(Dataset):
         input_id = input["input_ids"]
         input_id = input_id.unsqueeze(0) if input_id.dim() == 1 else input_id
         return input_id
-    
+
     @torch.inference_mode()
     def extract_mels(self, audio, sr):
         assert sr == 24000, "Only support 24kHz audio"

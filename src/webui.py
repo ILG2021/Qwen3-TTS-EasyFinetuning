@@ -154,7 +154,10 @@ def stream_isolated(func, *args, **kwargs):
         global_training_stop_event = stop_event
         
     import os
-    env_vars = {"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES", "")}
+    env_vars = {
+        "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+        "PYTORCH_CUDA_ALLOC_CONF": os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"),
+    }
         
     p = ctx.Process(target=_run_worker, args=(func, q, stop_event, env_vars, args, kwargs))
     p.start()
@@ -283,7 +286,7 @@ def run_step_2(speaker_name, asr_model, asr_source, gpu_id, progress=gr.Progress
     yield from stream_worker_updates(stream, progress)
 
 # ----------------- Step 3: Tokenization -----------------
-def run_step_3(speaker_name, experiment_name, gpu_id, progress=gr.Progress()):
+def run_step_3(speaker_name, experiment_name, gpu_id, tokenize_batch_size, progress=gr.Progress()):
     if isinstance(speaker_name, list):
         speaker_names = [s.strip() for s in speaker_name if s.strip()]
     elif isinstance(speaker_name, str):
@@ -328,7 +331,8 @@ def run_step_3(speaker_name, experiment_name, gpu_id, progress=gr.Progress()):
     resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=True)
     device = "cuda:0" if gpu_id != "cpu" else "cpu"
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id.replace("cuda:", "") if gpu_id != "cpu" else ""
-    stream = stream_isolated(internal_run_prepare, device, resolved_tokenizer, input_jsonl, output_jsonl)
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    stream = stream_isolated(internal_run_prepare, device, resolved_tokenizer, input_jsonl, output_jsonl, int(tokenize_batch_size))
     yield from stream_worker_updates(stream, progress)
 
 # ----------------- Download Model -----------------
@@ -852,6 +856,15 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         info="Used for encoding audio into tokens",
                         scale=1
                     )
+                    tokenize_batch_size = gr.Slider(
+                        minimum=1,
+                        maximum=16,
+                        step=1,
+                        value=4,
+                        label="Tokenizer Batch Size",
+                        info="Lower this if tokenization runs out of VRAM",
+                        scale=1,
+                    )
                 step3_btn = gr.Button("▶️ Tokenize Data", variant="primary")
                 step3_out = gr.Textbox(label="Tokenization Logs", lines=1)
                 
@@ -997,7 +1010,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
 
     
     # Step 3
-    step3_btn.click(fn=run_step_3, inputs=[speaker_dropdown, experiment_dropdown, gpu_prep], outputs=[step3_out])
+    step3_btn.click(fn=run_step_3, inputs=[speaker_dropdown, experiment_dropdown, gpu_prep, tokenize_batch_size], outputs=[step3_out])
     
     # Utilities
     download_btn.click(fn=check_or_download_model, inputs=[init_model, model_source], outputs=[download_log])

@@ -163,7 +163,7 @@ def cmd_tokenize(args):
     resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=True)
     device = "cuda:0" if args.gpu != "cpu" else "cpu"
     
-    consume_generator(run_prepare(device, resolved_tokenizer, input_jsonl, output_codes_jsonl))
+    consume_generator(run_prepare(device, resolved_tokenizer, input_jsonl, output_codes_jsonl, batch_size=args.tokenize_batch_size))
 
 
 def cmd_train(args):
@@ -416,6 +416,7 @@ Examples:
     p_tokenize.add_argument("--speaker_name", type=str, required=True, help="Speaker name(s), comma-separated for multi-speaker")
     p_tokenize.add_argument("--experiment_name", type=str, required=True, help="Experiment name for saving logs/codes")
     p_tokenize.add_argument("--gpu", type=str, default="cuda:0")
+    p_tokenize.add_argument("--tokenize_batch_size", type=int, default=4, help="Tokenizer batch size. Lower to 2 or 1 if VRAM is limited")
 
     # ── train ──
     p_train = subparsers.add_parser("train", help="Run fine-tuning training (supports multi-speaker)")
