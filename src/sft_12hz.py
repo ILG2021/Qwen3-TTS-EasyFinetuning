@@ -436,28 +436,6 @@ def run_train(
             else:
                 print(msg)
 
-        import os as _os
-        missing = []
-        log_print("Loading pre-computed speaker embeddings...")
-        for spk in speaker_names:
-            emb_path = _os.path.join(root_dir, "final-dataset", spk, "speaker_emb.safetensors")
-            if _os.path.exists(emb_path):
-                from safetensors.torch import load_file
-                emb = load_file(emb_path)["emb"]
-                if isinstance(emb, torch.Tensor):
-                    emb = emb.squeeze(0) if emb.dim() == 2 else emb
-                    speaker_embeddings[spk] = emb
-                    log_print(f"  {spk}: loaded (norm={emb.norm():.2f})")
-                else:
-                    missing.append(spk)
-            else:
-                missing.append(spk)
-        if missing:
-            msg = f"Missing speaker embeddings for: {', '.join(missing)}. Run embed_speaker.py first."
-            log_print(msg)
-            yield {"type": "error", "msg": msg}
-            return
-
         log_print(f"Multi-speaker mode: {len(speaker_names)} speakers")
         for name, sid in spk_id_map.items():
             log_print(f"  Speaker '{name}' -> spk_id {sid}")
@@ -620,6 +598,7 @@ def run_train(
 
                     input_ids = batch["input_ids"].to(model_device)
                     codec_ids = batch["codec_ids"].to(model_device)
+                    ref_mels_list = batch["ref_mels"]
                     text_embedding_mask = batch["text_embedding_mask"].to(model_device)
                     codec_embedding_mask = batch["codec_embedding_mask"].to(model_device)
                     attention_mask = batch["attention_mask"].to(model_device)
@@ -629,10 +608,14 @@ def run_train(
                     with autocast_context:
                         per_sample_embeddings = []
                         batch_speaker_ids = batch["speaker_ids"]
-                        for b_idx in range(len(batch_speaker_ids)):
-                            sid = batch_speaker_ids[b_idx]
-                            emb = speaker_embeddings[sid].unsqueeze(0).to(model_device).to(model_dtype)
+                        for b_idx, ref_mel in enumerate(ref_mels_list):
+                            emb = unwrap_model.speaker_encoder(ref_mel.to(model_device).to(model_dtype)).detach()
                             per_sample_embeddings.append(emb)
+
+                            sid = batch_speaker_ids[b_idx]
+                            if sid not in speaker_embeddings:
+                                speaker_embeddings[sid] = emb[0].cpu()
+                                log_print(f"Captured embedding for speaker '{sid}'")
 
                         speaker_embedding = torch.cat(per_sample_embeddings, dim=0)
 
@@ -712,6 +695,13 @@ def run_train(
                     writer.add_scalar("train/epoch_index", epoch, global_step)
                     writer.add_scalar("train/step_in_epoch", step, global_step)
                     writer.flush()
+
+                if is_main_process and step % 500 == 0:
+                    try:
+                        mel_vis = plot_spectrogram_to_numpy(ref_mels_list[0][0].detach().cpu().float().numpy())
+                        writer.add_image("train/ref_mel", mel_vis, global_step, dataformats="HWC")
+                    except Exception as e:
+                        log_print(f"Error logging Mel to Tensorboard: {e}")
 
                 should_save_step_checkpoint = (
                     is_main_process

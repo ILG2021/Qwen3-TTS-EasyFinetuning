@@ -210,11 +210,11 @@ def run_step_2(speaker_name, asr_model, asr_source, gpu_id, progress=gr.Progress
     yield from stream_worker_updates(stream, progress)
 
 # ----------------- Step 3: Tokenization -----------------
-def run_step_3(speaker_name, experiment_name, gpu_id, model_source, progress=gr.Progress()):
+def run_step_3(speaker_name, experiment_name, gpu_id, progress=gr.Progress()):
     if isinstance(speaker_name, list):
         speaker_names = [s.strip() for s in speaker_name if s.strip()]
     elif isinstance(speaker_name, str):
-        speaker_names = [s.strip() for s in speaker_name.split(",") if s.strip()]
+        speaker_names = [s.strip() for s in speaker_name.split(',') if s.strip()]
     else:
         speaker_names = []
 
@@ -228,7 +228,6 @@ def run_step_3(speaker_name, experiment_name, gpu_id, model_source, progress=gr.
     output_jsonl = os.path.join(log_dir, "tts_train_with_codes.jsonl")
 
     if len(speaker_names) > 1:
-        # Merge multi-speaker
         merged_jsonl = os.path.join(log_dir, "tts_train_merged.jsonl")
         total_merged = 0
         with open(merged_jsonl, 'w', encoding='utf-8') as f_out:
@@ -244,7 +243,7 @@ def run_step_3(speaker_name, experiment_name, gpu_id, model_source, progress=gr.
                         entry['speaker_id'] = spk_name
                         f_out.write(json.dumps(entry, ensure_ascii=False) + '\n')
                         total_merged += 1
-            print(f"    Merged {total_merged} entries from {len(speaker_names)} speakers.")
+        yield f"Merged {total_merged} entries from {len(speaker_names)} speakers. Starting tokenization..."
         input_jsonl = merged_jsonl
     else:
         speaker_dir = resolve_path(os.path.join("final-dataset", speaker_names[0]))
@@ -253,103 +252,11 @@ def run_step_3(speaker_name, experiment_name, gpu_id, model_source, progress=gr.
             yield f"Error: File {input_jsonl} not found. Please run Data Prep Step 1 & 2 first."
             return
 
-    use_hf = model_source == "HuggingFace"
-    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=use_hf)
+    resolved_tokenizer = get_model_path("Qwen/Qwen3-TTS-Tokenizer-12Hz", use_hf=False)
     device = "cuda:0" if gpu_id != "cpu" else "cpu"
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id.replace("cuda:", "") if gpu_id != "cpu" else ""
     stream = stream_isolated(internal_run_prepare, device, resolved_tokenizer, input_jsonl, output_jsonl)
     yield from stream_worker_updates(stream, progress)
-
-
-def resolve_embed_base_model(model_name):
-    model_name = model_name.strip() if isinstance(model_name, str) else ""
-    if not model_name:
-        return "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
-    if model_name.endswith("-Base"):
-        return model_name
-    if "0.6B" in model_name:
-        return "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
-    if "1.7B" in model_name:
-        return "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    return "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
-
-
-def run_embed_speakers(speaker_name, gpu_id, model_name, model_source, progress=gr.Progress()):
-    """Pre-compute speaker embeddings from reference audio."""
-    if isinstance(speaker_name, list):
-        speakers = [s.strip() for s in speaker_name if s.strip()]
-    elif isinstance(speaker_name, str):
-        speakers = [s.strip() for s in speaker_name.split(",") if s.strip()]
-    else:
-        yield "Please select speakers."
-        return
-
-    if gpu_id == "cpu":
-        yield "Speaker embedding currently requires a CUDA device."
-        return
-
-    base_model = resolve_embed_base_model(model_name)
-    use_hf = model_source == "HuggingFace"
-    resolved_base_model = get_model_path(base_model, use_hf=use_hf)
-    device = "cuda:0"
-    progress(0.1, desc=f"Loading speaker_encoder from {base_model}...")
-    import torch, librosa, json
-    from qwen_tts import Qwen3TTSModel
-    from qwen_tts.core.models.modeling_qwen3_tts import mel_spectrogram
-    from safetensors.torch import save_file
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id.replace("cuda:", "")
-    base = Qwen3TTSModel.from_pretrained(
-        resolved_base_model,
-        device_map=device, torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-    )
-    se = base.model.speaker_encoder.to(device)
-    del base
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    msgs = []
-    for spk in speakers:
-        jsonl = resolve_path(f"final-dataset/{spk}/tts_train.jsonl")
-        if not os.path.exists(jsonl):
-            msgs.append(f"{spk}: no JSONL, skip")
-            continue
-
-        out_path = resolve_path(f"final-dataset/{spk}/speaker_emb.safetensors")
-
-        # Use ref_audio from first JSONL entry (set by Step 2 pipeline)
-        with open(jsonl) as f:
-            entries = [json.loads(line) for line in f]
-        if not entries:
-            msgs.append(f"{spk}: JSONL is empty, skip")
-            continue
-        ref = entries[0].get("ref_audio")
-        if not ref or not os.path.exists(ref):
-            msgs.append(f"{spk}: ref_audio not found in JSONL, skip")
-            continue
-
-        progress(0.3 + 0.6 * (speakers.index(spk) / max(len(speakers), 1)),
-                 desc=f"Embedding {spk}...")
-        audio, sr = librosa.load(ref, sr=24000, mono=True)
-        mel = mel_spectrogram(
-            torch.from_numpy(audio).unsqueeze(0).to(device),
-            n_fft=1024, num_mels=128, sampling_rate=24000,
-            hop_size=256, win_size=1024, fmin=0, fmax=12000,
-        ).transpose(1, 2).to(torch.bfloat16)
-        with torch.no_grad():
-            emb = se(mel).detach().cpu()
-
-        avg_emb = emb[0].squeeze(0) if emb.dim() == 2 else emb.squeeze(0)
-        save_file({"emb": avg_emb}, out_path)
-        msgs.append(f"{spk}: norm={avg_emb.norm():.2f}")
-
-    del se
-    gc.collect()
-    torch.cuda.empty_cache()
-    progress(1.0, desc="Done")
-    yield f"Using base speaker encoder: {base_model}\n" + "\n".join(msgs)
 
 # ----------------- Download Model -----------------
 def check_or_download_model(init_model, model_source, progress=gr.Progress()):
@@ -362,7 +269,7 @@ def check_or_download_model(init_model, model_source, progress=gr.Progress()):
         download_base_model.target_dir = get_model_local_dir(init_model)
         resolved_init_model = run_with_polling(download_base_model, progress, progress_start=0.05, progress_end=0.55, desc_prefix=f"Downloading base model {init_model}")
         def download_tokenizer_model():
-            return get_model_path(tokenizer_model_id, use_hf=use_hf)
+            return get_model_path(tokenizer_model_id, use_hf=False)
         download_tokenizer_model.target_dir = get_model_local_dir(tokenizer_model_id)
         resolved_tokenizer = run_with_polling(download_tokenizer_model, progress, progress_start=0.60, progress_end=0.98, desc_prefix=f"Downloading tokenizer {tokenizer_model_id}")
         progress(1.0, desc="All required models are ready")
@@ -857,8 +764,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         scale=1
                     )
                 step3_btn = gr.Button("▶️ Tokenize Data", variant="primary")
-                embed_btn = gr.Button("🎤 Embed Speakers", variant="secondary", size="sm")
-                step3_out = gr.Textbox(label="Tokenization / Embedding Logs", lines=2)
+                step3_out = gr.Textbox(label="Tokenization Logs", lines=1)
                 
             gr.Markdown("---")
             
@@ -978,9 +884,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
 
     
     # Step 3
-    step3_btn.click(fn=run_step_3, inputs=[speaker_dropdown, experiment_dropdown, gpu_prep, model_source], outputs=[step3_out])
-    # Embed Speakers
-    embed_btn.click(fn=run_embed_speakers, inputs=[speaker_dropdown, gpu_prep, init_model, model_source], outputs=[step3_out])
+    step3_btn.click(fn=run_step_3, inputs=[speaker_dropdown, experiment_dropdown, gpu_prep], outputs=[step3_out])
     
     # Utilities
     download_btn.click(fn=check_or_download_model, inputs=[init_model, model_source], outputs=[download_log])
