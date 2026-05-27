@@ -29,20 +29,28 @@ def get_model_local_dir(model_id):
 def is_model_dir_ready(path):
     if not path or not os.path.isdir(path):
         return False
-    marker_files = (
-        'config.json',
-        'tokenizer_config.json',
-        'preprocessor_config.json',
+
+    payload_markers = (
+        'model.safetensors',
         'model.safetensors.index.json',
+        'pytorch_model.bin',
         'pytorch_model.bin.index.json',
+        'tf_model.h5',
+        'model.ckpt.index',
+        'flax_model.msgpack',
+        'tokenizer.json',
+        'tokenizer.model',
     )
-    if any(os.path.exists(os.path.join(path, marker)) for marker in marker_files):
+
+    if any(os.path.exists(os.path.join(path, marker)) for marker in payload_markers):
         return True
+
     try:
         entries = os.listdir(path)
     except OSError:
         return False
-    return any(entry.endswith(('.safetensors', '.bin', '.json', '.model')) for entry in entries)
+
+    return any(entry.endswith(('.safetensors', '.bin', '.model')) for entry in entries)
 
 
 
