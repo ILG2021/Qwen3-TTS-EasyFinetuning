@@ -126,7 +126,6 @@ class TTSDataset(Dataset):
         text        = item["text"]
         audio_codes = item["audio_codes"]
         language        = item.get('language','Auto')
-        ref_audio_path  = item['ref_audio']
         speaker_id      = item.get('speaker_id', self.default_speaker)
 
         text = self._build_assistant_text(text)
@@ -134,16 +133,9 @@ class TTSDataset(Dataset):
 
         audio_codes = torch.tensor(audio_codes, dtype=torch.long)
 
-        ref_audio_list = self._ensure_list(ref_audio_path)
-        normalized = self._normalize_audio_inputs(ref_audio_list)
-        wav,sr = normalized[0]
-
-        ref_mel = self.extract_mels(audio=wav, sr=sr)
-
         return {
-            "text_ids": text_ids[:,:-5],    # 1 , t
-            "audio_codes":audio_codes,      # t, 16
-            "ref_mel":ref_mel,
+            "text_ids": text_ids[:,:-5],
+            "audio_codes":audio_codes,
             "speaker_id": speaker_id
         }
         
@@ -207,14 +199,10 @@ class TTSDataset(Dataset):
             codec_mask[i,   8+text_ids_len-1:8+text_ids_len-1+codec_ids_len] = True
             attention_mask[i, :8+text_ids_len+codec_ids_len] = True
         
-        # Keep ref_mels as a list of variable-length tensors (each shape: 1, time, 128)
-        # They will be processed per-sample in the training loop to avoid padding artifacts
-        ref_mels = [data['ref_mel'] for data in batch]
         speaker_ids = [data['speaker_id'] for data in batch]
 
         return {
             'input_ids':input_ids,
-            'ref_mels':ref_mels,
             'attention_mask':attention_mask,
             'text_embedding_mask':text_embedding_mask.unsqueeze(-1),
             'codec_embedding_mask':codec_embedding_mask.unsqueeze(-1),
