@@ -225,6 +225,24 @@ def should_skip_base_artifact(name):
     return name.endswith(MODEL_PAYLOAD_SUFFIXES)
 
 
+def should_remove_stale_model_payload(name):
+    """Return True for root-level model payloads that can conflict with the new export."""
+    if name in TRAINING_STATE_FILENAMES:
+        return False
+    return name in MODEL_PAYLOAD_FILENAMES or name.endswith(MODEL_PAYLOAD_SUFFIXES)
+
+
+def remove_stale_model_payloads(checkpoint_dir):
+    """Delete old root-level base weights before writing the fine-tuned model payload."""
+    if not os.path.isdir(checkpoint_dir):
+        return
+
+    for name in os.listdir(checkpoint_dir):
+        path = os.path.join(checkpoint_dir, name)
+        if os.path.isfile(path) and should_remove_stale_model_payload(name):
+            os.remove(path)
+
+
 def copy_inference_support_files(model_path, checkpoint_dir, log_print):
     """
     Copy lightweight files required by from_pretrained without duplicating base weights.
@@ -240,6 +258,7 @@ def copy_inference_support_files(model_path, checkpoint_dir, log_print):
     def ignore_payloads(_, names):
         return {name for name in names if should_skip_base_artifact(name)}
 
+    remove_stale_model_payloads(checkpoint_dir)
     shutil.copytree(model_path, checkpoint_dir, dirs_exist_ok=True, ignore=ignore_payloads)
 
 
