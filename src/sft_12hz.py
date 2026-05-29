@@ -42,6 +42,23 @@ except ImportError:
 target_speaker_embedding = None
 speaker_embeddings = {}  # Dict[speaker_id_str, Tensor] for multi-speaker
 
+MODEL_PAYLOAD_SUFFIXES = (
+    ".safetensors",
+    ".bin",
+    ".pt",
+    ".pth",
+    ".ckpt",
+    ".onnx",
+)
+MODEL_PAYLOAD_FILENAMES = {
+    "model.safetensors.index.json",
+    "pytorch_model.bin.index.json",
+}
+TRAINING_STATE_FILENAMES = {
+    "training_state.pt",
+    "trainer_state.json",
+}
+
 
 # Setup args manually for dataset processing
 class DummyArgs:
@@ -201,6 +218,31 @@ def load_trainer_state(checkpoint_dir):
         return json.load(f)
 
 
+def should_skip_base_artifact(name):
+    """Return True for heavyweight base-model payloads that are replaced by the fine-tuned export."""
+    if name in MODEL_PAYLOAD_FILENAMES or name in TRAINING_STATE_FILENAMES:
+        return True
+    return name.endswith(MODEL_PAYLOAD_SUFFIXES)
+
+
+def copy_inference_support_files(model_path, checkpoint_dir, log_print):
+    """
+    Copy lightweight files required by from_pretrained without duplicating base weights.
+
+    Dependencies: this helper uses shutil.copytree's ignore hook so tokenizer/config
+    assets are preserved while large model payloads are skipped. The fine-tuned
+    model.safetensors is written separately by export_inference_artifacts().
+    """
+    if not os.path.isdir(model_path):
+        log_print(f"Warning: base model path is not a directory, skipping support file copy: {model_path}")
+        return
+
+    def ignore_payloads(_, names):
+        return {name for name in names if should_skip_base_artifact(name)}
+
+    shutil.copytree(model_path, checkpoint_dir, dirs_exist_ok=True, ignore=ignore_payloads)
+
+
 def export_inference_artifacts(
     checkpoint_dir,
     model_path,
@@ -211,7 +253,7 @@ def export_inference_artifacts(
     current_target_speaker_embedding,
     log_print,
 ):
-    shutil.copytree(model_path, checkpoint_dir, dirs_exist_ok=True)
+    copy_inference_support_files(model_path, checkpoint_dir, log_print)
 
     output_config_file = os.path.join(checkpoint_dir, "config.json")
     config_dict = json.loads(json.dumps(base_config))

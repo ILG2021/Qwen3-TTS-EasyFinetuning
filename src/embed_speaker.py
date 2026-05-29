@@ -35,7 +35,7 @@ import torch
 import librosa
 from qwen_tts import Qwen3TTSModel
 from qwen_tts.core.models.modeling_qwen3_tts import mel_spectrogram
-from utils import get_model_path, resolve_embed_base_model
+from utils import get_model_path, resolve_embed_base_model, resolve_path
 
 
 def get_runtime_device():
@@ -78,6 +78,47 @@ def parse_speaker_names(speaker_arg):
     return [item.strip() for item in str(speaker_arg).split(",") if item.strip()]
 
 
+def resolve_existing_audio_path(path_value, fallback_dirs=None):
+    """
+    Resolve audio paths from JSONL or CLI input into an existing filesystem path.
+
+    Dependencies: resolve_path anchors project-relative JSONL entries at the repo
+    root, while fallback_dirs keeps backwards compatibility with short filenames
+    that are meant to live under a speaker's audio_24k directory.
+    """
+    if not path_value:
+        return ""
+
+    raw_path = os.path.expanduser(str(path_value).strip())
+    if not raw_path:
+        return ""
+
+    candidates = []
+    if os.path.isabs(raw_path):
+        candidates.append(raw_path)
+    else:
+        for base_dir in fallback_dirs or []:
+            candidates.append(os.path.join(base_dir, raw_path))
+        candidates.append(resolve_path(raw_path))
+        candidates.append(os.path.abspath(raw_path))
+
+    seen = set()
+    for candidate in candidates:
+        normalized = os.path.abspath(candidate)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if os.path.exists(normalized):
+            return normalized
+    return ""
+
+
+def load_jsonl_entries(jsonl_path):
+    """Load a speaker JSONL file, ignoring blank lines for easier manual cleanup."""
+    with open(jsonl_path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
 def run_embedding_job(
     model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
     model_source="ModelScope",
@@ -94,9 +135,9 @@ def run_embedding_job(
     print(f"Resolved model path: {resolved_base_model}")
     se = load_speaker_encoder(resolved_base_model, device=device)
 
-    dataset_path = "final-dataset"
+    dataset_path = resolve_path("final-dataset")
     if not os.path.isdir(dataset_path):
-        print("final-dataset/ not found. Run the data pipeline first.")
+        print(f"{dataset_path} not found. Run the data pipeline first.")
         sys.exit(1)
 
     explicit_speakers = parse_speaker_names(speaker)
@@ -109,39 +150,38 @@ def run_embedding_job(
         spk_dir = os.path.join(dataset_path, spk)
         jsonl = os.path.join(spk_dir, "tts_train.jsonl")
         audio_dir = os.path.join(spk_dir, "audio_24k")
-        out_path = output or os.path.join(spk_dir, "speaker_emb.safetensors")
+        out_path = resolve_path(output) if output else os.path.join(spk_dir, "speaker_emb.safetensors")
 
         embeddings = []
 
         if ref:
             for ref_file in ref.split(","):
-                ref_file = ref_file.strip()
-                if not os.path.isabs(ref_file):
-                    ref_file = os.path.join(audio_dir, ref_file)
-                if os.path.exists(ref_file):
-                    print(f"  {spk}: {os.path.basename(ref_file)}")
-                    embeddings.append(extract_embedding(se, ref_file, device))
+                ref_path = resolve_existing_audio_path(ref_file, fallback_dirs=[audio_dir])
+                if ref_path:
+                    print(f"  {spk}: {os.path.basename(ref_path)}")
+                    embeddings.append(extract_embedding(se, ref_path, device))
+                else:
+                    print(f"  {spk}: ref audio not found: {ref_file.strip()}")
         elif mode == "avg_all":
             if os.path.exists(jsonl):
-                with open(jsonl, encoding="utf-8") as f:
-                    entries = [json.loads(line) for line in f]
+                entries = load_jsonl_entries(jsonl)
                 for entry in entries:
-                    audio_path = entry.get("audio")
-                    if audio_path and os.path.exists(audio_path):
+                    audio_path = resolve_existing_audio_path(entry.get("audio"), fallback_dirs=[audio_dir, spk_dir])
+                    if audio_path:
                         embeddings.append(extract_embedding(se, audio_path, device))
-                print(f"  {spk}: averaged {len(entries)} samples")
+                print(f"  {spk}: averaged {len(embeddings)}/{len(entries)} samples")
             else:
                 print(f"  {spk}: no JSONL, skipping")
                 continue
         else:
             if os.path.exists(jsonl):
-                with open(jsonl, encoding="utf-8") as f:
-                    entries = [json.loads(line) for line in f]
+                entries = load_jsonl_entries(jsonl)
                 if entries:
                     ref_audio = entries[0].get("ref_audio")
-                    if ref_audio and os.path.exists(ref_audio):
-                        print(f"  {spk}: {os.path.basename(ref_audio)}")
-                        embeddings.append(extract_embedding(se, ref_audio, device))
+                    ref_path = resolve_existing_audio_path(ref_audio, fallback_dirs=[audio_dir, spk_dir])
+                    if ref_path:
+                        print(f"  {spk}: {os.path.basename(ref_path)}")
+                        embeddings.append(extract_embedding(se, ref_path, device))
                     else:
                         print(f"  {spk}: ref_audio not found in JSONL, skipping")
                         continue
