@@ -195,14 +195,18 @@ def cmd_embed(args):
 
     from embed_speaker import run_embedding_job
 
-    run_embedding_job(
-        model_name=args.init_model,
-        model_source=args.model_source,
-        mode=args.mode,
-        speaker=",".join(speaker_names),
-        ref=args.ref,
-        output=args.output,
-    )
+    try:
+        run_embedding_job(
+            model_name=args.init_model,
+            model_source=args.model_source,
+            mode=args.mode,
+            speaker=",".join(speaker_names),
+            ref=args.ref,
+            output=args.output,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"  ❌ {exc}")
+        sys.exit(1)
 
 
 def cmd_train(args):

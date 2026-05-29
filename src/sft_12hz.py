@@ -514,7 +514,7 @@ def run_train(
             else:
                 missing.append(spk)
         if missing:
-            msg = f"Missing speaker embeddings for: {', '.join(missing)}. Run embed_speaker.py first."
+            msg = f"Missing speaker embeddings for: {', '.join(missing)}. Run `python src/cli.py embed` first."
             log_print(msg)
             yield {"type": "error", "msg": msg}
             return

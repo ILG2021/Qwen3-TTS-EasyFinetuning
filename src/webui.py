@@ -8,6 +8,7 @@ from step1_audio_split import run_step_1 as internal_run_step_1
 from step2_asr_clean import run_step_2 as internal_run_step_2
 from prepare_data import run_prepare as internal_run_prepare
 from sft_12hz import run_train as internal_run_train
+from embed_speaker import generate_speaker_embeddings
 
 import time
 import torch
@@ -335,74 +336,36 @@ def run_embed_speakers(speaker_name, gpu_id, model_name, model_source, progress=
         desc_prefix=f"Preparing speaker encoder {base_model}",
     )
     device = "cuda:0"
-    progress(0.1, desc=f"Loading speaker_encoder from {base_model}...")
-    import torch, librosa, json
-    from qwen_tts import Qwen3TTSModel
-    from qwen_tts.core.models.modeling_qwen3_tts import mel_spectrogram
-    from safetensors.torch import save_file
-
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id.replace("cuda:", "")
-    base = Qwen3TTSModel.from_pretrained(
-        resolved_base_model,
-        device_map=device, torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-    )
-    se = base.model.speaker_encoder.to(device)
-    del base
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
 
     msgs = []
-    for spk in speakers:
-        jsonl = resolve_path(f"final-dataset/{spk}/tts_train.jsonl")
-        if not os.path.exists(jsonl):
-            msgs.append(f"{spk}: no JSONL, skip")
-            continue
+    def report_progress(value, desc):
+        # Model download uses 0.02-0.10; embedding work owns the remaining span.
+        progress(0.10 + 0.90 * value, desc=desc)
 
-        out_path = resolve_path(f"final-dataset/{spk}/speaker_emb.safetensors")
-
-        # Use ref_audio from first JSONL entry (set by Step 2 pipeline)
-        with open(jsonl) as f:
-            entries = [json.loads(line) for line in f]
-        if not entries:
-            msgs.append(f"{spk}: JSONL is empty, skip")
-            continue
-        ref = entries[0].get("ref_audio")
-        # JSONL entries may store project-relative or audio-dir-relative paths,
-        # so resolve them before deciding the embed step failed.
-        from embed_speaker import resolve_existing_audio_path
-        ref = resolve_existing_audio_path(
-            ref,
-            fallback_dirs=[
-                resolve_path(f"final-dataset/{spk}/audio_24k"),
-                resolve_path(f"final-dataset/{spk}"),
-            ],
+    try:
+        results = generate_speaker_embeddings(
+            model_name=base_model,
+            model_source=model_source,
+            mode="ref",
+            speakers=speakers,
+            device=device,
+            resolved_model_path=resolved_base_model,
+            progress_callback=report_progress,
+            log_callback=msgs.append,
         )
-        if not ref:
-            msgs.append(f"{spk}: ref_audio not found in JSONL, skip")
-            continue
+    except Exception as exc:
+        yield f"Speaker embedding failed: {exc}"
+        return
 
-        progress(0.3 + 0.6 * (speakers.index(spk) / max(len(speakers), 1)),
-                 desc=f"Embedding {spk}...")
-        audio, sr = librosa.load(ref, sr=24000, mono=True)
-        mel = mel_spectrogram(
-            torch.from_numpy(audio).unsqueeze(0).to(device),
-            n_fft=1024, num_mels=128, sampling_rate=24000,
-            hop_size=256, win_size=1024, fmin=0, fmax=12000,
-        ).transpose(1, 2).to(torch.bfloat16)
-        with torch.no_grad():
-            emb = se(mel).detach().cpu()
+    summary = []
+    for result in results:
+        if result.status == "saved":
+            summary.append(f"{result.speaker}: norm={result.norm:.2f}")
+        else:
+            summary.append(f"{result.speaker}: {result.message}")
 
-        avg_emb = emb[0].squeeze(0) if emb.dim() == 2 else emb.squeeze(0)
-        save_file({"emb": avg_emb}, out_path)
-        msgs.append(f"{spk}: norm={avg_emb.norm():.2f}")
-
-    del se
-    gc.collect()
-    torch.cuda.empty_cache()
-    progress(1.0, desc="Done")
-    yield f"Using base speaker encoder: {base_model}\n" + "\n".join(msgs)
+    yield f"Using base speaker encoder: {base_model}\n" + "\n".join(summary or msgs)
 
 # ----------------- Download Model -----------------
 def check_or_download_model(init_model, model_source, progress=gr.Progress()):
