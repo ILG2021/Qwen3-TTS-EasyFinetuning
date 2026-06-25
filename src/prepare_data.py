@@ -27,7 +27,7 @@ from pydub import AudioSegment
 from qwen_tts import Qwen3TTSTokenizer
 from utils import resolve_path
 
-BATCH_INFER_NUM = 32
+BATCH_INFER_NUM = 8
 TARGET_SAMPLE_RATE = 24000
 
 def log_progress(progress, desc):
@@ -111,7 +111,8 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
             batch_audios.append(line['audio'])
 
             if len(batch_lines) >= BATCH_INFER_NUM:
-                enc_res = tokenizer_12hz.encode(batch_audios)
+                with torch.inference_mode():
+                    enc_res = tokenizer_12hz.encode(batch_audios)
                 for code, item in zip(enc_res.audio_codes, batch_lines):
                     item['audio_codes'] = code.cpu().tolist()
                     final_lines.append(item)
@@ -121,7 +122,8 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
                 yield {"type": "progress", "progress": 0.1 + 0.8 * (idx / max(total_count, 1)), "desc": f"Tokenizing: {idx}/{total_count}"}
 
         if len(batch_audios) > 0:
-            enc_res = tokenizer_12hz.encode(batch_audios)
+            with torch.inference_mode():
+                enc_res = tokenizer_12hz.encode(batch_audios)
             for code, item in zip(enc_res.audio_codes, batch_lines):
                 item['audio_codes'] = code.cpu().tolist()
                 final_lines.append(item)
