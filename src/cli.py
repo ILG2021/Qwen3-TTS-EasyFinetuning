@@ -281,11 +281,17 @@ def cmd_train(args):
 
     # Start TensorBoard
     print_step("Starting TensorBoard on port 6006...")
+    import sys
     try:
-        subprocess.check_output(["pgrep", "-f", "tensorboard --logdir logs"]).decode().strip()
-    except subprocess.CalledProcessError:
+        if sys.platform == "win32":
+            output = subprocess.check_output('tasklist', shell=True).decode('gbk', errors='ignore')
+            if "tensorboard.exe" not in output.lower():
+                raise subprocess.CalledProcessError(1, "tasklist")
+        else:
+            subprocess.check_output(["pgrep", "-f", "tensorboard"]).decode().strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
         subprocess.Popen(["tensorboard", "--logdir", "logs", "--port", "6006", "--bind_all"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=(sys.platform == "win32"))
 
     # Run training
     print_step(f"Training started on {args.gpu}...")

@@ -444,16 +444,26 @@ def check_or_download_model(init_model, model_source, progress=gr.Progress()):
 def check_tb():
     def is_process_running(process_name):
         try:
-            output = subprocess.check_output(["pgrep", "-f", process_name]).decode().strip()
-            return bool(output)
-        except subprocess.CalledProcessError:
+            import sys
+            if sys.platform == "win32":
+                output = subprocess.check_output('tasklist', shell=True).decode('gbk', errors='ignore')
+                return process_name.lower() in output.lower()
+            else:
+                output = subprocess.check_output(["pgrep", "-f", process_name]).decode().strip()
+                return bool(output)
+        except (subprocess.CalledProcessError, FileNotFoundError):
             return False
-    if not is_process_running("tensorboard --logdir logs"):
-        subprocess.Popen(["tensorboard", "--logdir", "logs", "--port", "6006", "--bind_all"])
+    if not is_process_running("tensorboard"):
+        import sys
+        subprocess.Popen(["tensorboard", "--logdir", "logs", "--port", "6006", "--bind_all"], shell=(sys.platform == "win32"))
 
 def stop_tensorboard():
     try:
-        subprocess.run(["pkill", "-f", "tensorboard --logdir logs"], check=False)
+        import sys
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/IM", "tensorboard.exe"], check=False)
+        else:
+            subprocess.run(["pkill", "-f", "tensorboard"], check=False)
         return "Tensorboard server stopped."
     except Exception as e:
         return f"Error stopping Tensorboard: {e}"
