@@ -39,13 +39,10 @@ def get_model_local_dir(model_id):
 
 def normalize_model_source(source=None, use_hf=None):
     """Normalize legacy and UI source values into a stable source name."""
-    if use_hf is not None:
-        return "HuggingFace" if use_hf else "ModelScope"
-    source = str(source or "ModelScope").strip().lower()
+    source = "HuggingFace" if use_hf is not False else source
+    source = str(source or "HuggingFace").strip().lower()
     if source in {"hf", "huggingface", "hugging_face"}:
         return "HuggingFace"
-    if source in {"ms", "modelscope", "model_scope"}:
-        return "ModelScope"
     raise ValueError(f"Unsupported model source: {source}")
 
 
@@ -54,7 +51,7 @@ def is_model_dir_ready(path):
     Check whether a directory has the minimum payload needed by from_pretrained.
 
     Dependencies: local filesystem only. Hub SDK cache metadata is deliberately
-    ignored so model reads never depend on HuggingFace or ModelScope internals.
+    ignored so model reads never depend on HuggingFace internals.
     """
     if not path or not os.path.isdir(path):
         return False
@@ -263,30 +260,13 @@ def _download_huggingface(model_id, target_dir, tracker):
     return target_dir
 
 
-def _download_modelscope(model_id, target_dir, tracker):
-    source_root = os.path.join(get_project_root(), "models", ".downloads", "modelscope")
-    expected_source_dir = os.path.join(source_root, model_id)
-    expected_hub_dir = os.path.join(source_root, "hub", "models", model_id)
-    os.makedirs(source_root, exist_ok=True)
-    tracker.set_stage("Downloading from ModelScope")
-    tracker.set_active_paths([expected_source_dir, expected_hub_dir])
-
-    from modelscope import snapshot_download
-
-    downloaded_path = snapshot_download(model_id, cache_dir=source_root)
-    tracker.set_stage("Preparing local model directory")
-    tracker.set_active_paths([downloaded_path, target_dir])
-    _materialize_snapshot(downloaded_path, target_dir)
-    return target_dir
-
-
-def ensure_model_path(model_ref, source="ModelScope", use_hf=None, progress_tracker=None, download=True):
+def ensure_model_path(model_ref, source="HuggingFace", use_hf=None, progress_tracker=None, download=True):
     """
     Return a local filesystem path that can be passed to from_pretrained.
 
-    HuggingFace and ModelScope are used only as download transports. Once a
-    snapshot is available, payload files are materialized under
-    ./models/<namespace>/<model>, and every caller reads from that directory.
+    HuggingFace is used only as a download transport. Once a snapshot is
+    available, payload files are materialized under ./models/<namespace>/<model>,
+    and every caller reads from that directory.
     """
     existing_path = resolve_existing_model_path(model_ref)
     if existing_path:
@@ -307,10 +287,7 @@ def ensure_model_path(model_ref, source="ModelScope", use_hf=None, progress_trac
 
     print(f"Downloading model {model_ref} from {source} into {target_dir}...")
     try:
-        if source == "HuggingFace":
-            resolved_path = _download_huggingface(model_ref, target_dir, tracker)
-        else:
-            resolved_path = _download_modelscope(model_ref, target_dir, tracker)
+        resolved_path = _download_huggingface(model_ref, target_dir, tracker)
     except Exception as exc:
         raise RuntimeError(f"Failed to download {model_ref} from {source}: {exc}") from exc
 

@@ -446,7 +446,7 @@ def run_with_polling(fn, progress, progress_start=0.02, progress_end=0.95, desc_
             if snapshot.fraction is not None:
                 progress_value = progress_start + (progress_end - progress_start) * min(snapshot.fraction, 0.995)
             else:
-                # Unknown totals are common with ModelScope; advance slowly while
+                # Unknown totals are common with hub downloads; advance slowly while
                 # still reporting real downloaded bytes and instantaneous speed.
                 elapsed_factor = min(snapshot.elapsed_seconds / 300.0, 0.90)
                 progress_value = progress_start + (progress_end - progress_start) * elapsed_factor

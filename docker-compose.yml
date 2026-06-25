@@ -2,9 +2,6 @@ version: '3.8'
 
 services:
   tts-finetuner:
-    # For mainland China users, you can use the Aliyun mirror for faster downloads by setting the DOCKER_IMAGE env var, 
-    # or by uncommenting the following line:
-    # image: registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest
     image: ${DOCKER_IMAGE:-ghcr.io/mozi1924/qwen3-tts-easyfinetuning:latest}
     build:
       context: .
@@ -36,7 +33,5 @@ services:
 
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - VLLM_USE_MODELSCOPE=true
       - HF_HOME=/workspace/models/huggingface
-      - MODELSCOPE_CACHE=/workspace/models/modelscope
       - PYTHONUNBUFFERED=1

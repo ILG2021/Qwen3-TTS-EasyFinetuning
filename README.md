@@ -76,13 +76,6 @@ To ensure stable training and avoid Out-of-Memory (OOM) errors, we recommend:
 # Pull the pre-built image from GHCR (Default)
 docker compose up -d
 
-# For users in mainland China, use the Aliyun mirror for faster downloads:
-# (Linux)
-DOCKER_IMAGE=registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest docker compose up -d
-
-# (Windows PowerShell)
-$env:DOCKER_IMAGE="registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning:latest"; docker compose up -d
-
 # Force a local build
 docker compose up -d --build
 ```

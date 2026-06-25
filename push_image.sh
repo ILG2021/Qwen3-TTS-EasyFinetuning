@@ -1,11 +1,10 @@
 #!/bin/bash
 
-# Tag and Registry Settings
+# Tag and registry settings
 TAG=${1:-latest}
 GHCR_IMAGE="ghcr.io/mozi1924/qwen3-tts-easyfinetuning"
-ALIYUN_IMAGE="registry.cn-hangzhou.aliyuncs.com/mozi1924/qwen3-tts-easyfinetuning"
 
-echo "🚀 Starting local build and push for $TAG"
+echo "Starting local build and push for $TAG"
 
 # 1. Generate build metadata
 BUILD_TIME=$(date +"%Y-%m-%d %H:%M:%S")
@@ -18,45 +17,34 @@ cat <<EOF > build_info.json
 }
 EOF
 
-echo "📝 Build Metadata: $BUILD_TIME (Git: $GIT_HASH)"
+echo "Build metadata: $BUILD_TIME (Git: $GIT_HASH)"
 
 # 2. Build the image locally
-echo "📦 Building Docker image..."
-# We build once using one of the tags, then re-tag for others
+echo "Building Docker image..."
 docker build --pull -t "$GHCR_IMAGE:$TAG" .
 
 if [ $? -ne 0 ]; then
-    echo "❌ Build failed! Please check the errors above."
+    echo "Build failed! Please check the errors above."
     rm build_info.json
     exit 1
 fi
 
-# 3. Tag for Alibaba Cloud and Latest
-echo "🏷️  Tagging images..."
-docker tag "$GHCR_IMAGE:$TAG" "$ALIYUN_IMAGE:$TAG"
-
+# 3. Tag latest when pushing a versioned tag
 if [ "$TAG" != "latest" ]; then
+    echo "Tagging latest image..."
     docker tag "$GHCR_IMAGE:$TAG" "$GHCR_IMAGE:latest"
-    docker tag "$GHCR_IMAGE:$TAG" "$ALIYUN_IMAGE:latest"
 fi
 
 # 4. Push to GHCR
-echo "⬆️  Pushing to GitHub Container Registry..."
+echo "Pushing to GitHub Container Registry..."
 docker push "$GHCR_IMAGE:$TAG"
 if [ "$TAG" != "latest" ]; then
     docker push "$GHCR_IMAGE:latest"
 fi
 
-# 5. Push to Alibaba Cloud
-echo "⬆️  Pushing to Alibaba Cloud Registry..."
-docker push "$ALIYUN_IMAGE:$TAG"
-if [ "$TAG" != "latest" ]; then
-    docker push "$ALIYUN_IMAGE:latest"
-fi
-
 if [ $? -ne 0 ]; then
-    echo "❌ Push failed!"
-    echo "💡 Make sure you are logged in to both registries."
+    echo "Push failed!"
+    echo "Make sure you are logged in to GHCR."
     rm build_info.json
     exit 1
 fi
@@ -64,4 +52,4 @@ fi
 # Cleanup
 rm build_info.json
 
-echo "✅ Successfully pushed $TAG to GHCR and Aliyun!"
+echo "Successfully pushed $TAG to GHCR!"

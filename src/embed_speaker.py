@@ -16,9 +16,6 @@ Legacy direct module usage:
   # Average all audio per speaker
   python src/embed_speaker.py --base_model Qwen/Qwen3-TTS-12Hz-1.7B-Base --mode avg_all
 
-  # Use HuggingFace instead of the project's default model source
-  python src/embed_speaker.py --base_model Qwen/Qwen3-TTS-12Hz-0.6B-Base --model_source HuggingFace
-
   # Custom ref audio for a single speaker
   python src/embed_speaker.py --speaker my_speaker --ref /path/to/ref.wav
 
@@ -245,7 +242,7 @@ def save_embedding(embedding, output_path):
 
 def generate_speaker_embeddings(
     model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-    model_source="ModelScope",
+    model_source="HuggingFace",
     mode="ref",
     speakers=None,
     ref=None,
@@ -344,7 +341,7 @@ def generate_speaker_embeddings(
 
 def run_embedding_job(
     model_name="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-    model_source="ModelScope",
+    model_source="HuggingFace",
     mode="ref",
     speaker=None,
     ref=None,
@@ -370,7 +367,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_model", "--init_model", dest="base_model", default="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
                         help="Training model ID; CustomVoice models will automatically reuse the matching Base speaker encoder")
-    parser.add_argument("--model_source", default="ModelScope", choices=["HuggingFace", "ModelScope"],
+    parser.add_argument("--model_source", default="HuggingFace", choices=["HuggingFace"],
                         help="Model download source, consistent with the rest of the project")
     parser.add_argument("--mode", default="ref", choices=["ref", "avg_all"],
                         help="ref=use ref_audio from JSONL, avg_all=average all samples per speaker")

@@ -57,11 +57,11 @@ def is_model_downloaded(model_id):
 
 
 
-def get_model_path(model_id, use_hf=False, progress_tracker=None):
+def get_model_path(model_id, use_hf=True, progress_tracker=None):
     """
     Resolve a model/checkpoint into a local from_pretrained path.
 
-    Dependencies: model_repository handles source-specific downloads and
+    Dependencies: model_repository handles HuggingFace downloads and
     canonical local materialization. This compatibility wrapper preserves the
     legacy `use_hf` argument used by CLI and WebUI modules.
     """

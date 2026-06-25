@@ -907,7 +907,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                         scale=2
                     )
                     asr_source = gr.Radio(
-                        ["HuggingFace", "ModelScope"], 
+                        ["HuggingFace"],
                         label="Download Source", 
                         value="HuggingFace",
                         info="Preferred hub for ASR model",
@@ -941,7 +941,7 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                 with gr.Row(elem_classes="step0-model-row"):
                     with gr.Column(scale=1):    
                         init_model = gr.Dropdown(SUPPORTED_TTS_TRAIN_MODELS, label="Initial Model", value=DEFAULT_TTS_TRAIN_MODEL, allow_custom_value=True, info="Base or CustomVoice starting weights")
-                        model_source = gr.Radio(["HuggingFace", "ModelScope"], label="Source", value="HuggingFace")
+                        model_source = gr.Radio(["HuggingFace"], label="Source", value="HuggingFace")
                     with gr.Column(scale=1):
                         download_btn = gr.Button("⬇️ Check / Download Model", variant="secondary", elem_classes="step0-primary-action")
                         download_log = gr.Textbox(label="Download Status", lines=3)

@@ -2,7 +2,6 @@ FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV USE_HF=1
-ENV VLLM_USE_MODELSCOPE=true
 
 RUN apt-get update && apt-get install -y \
     git \
