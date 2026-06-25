@@ -264,6 +264,53 @@ def run_step_2(speaker_name, asr_model, asr_source, gpu_id, progress=gr.Progress
     stream = stream_isolated(internal_run_step_2, input_dir, ref_path, output_jsonl, resolved_model_id, batch_size=16)
     yield from stream_worker_updates(stream, progress)
 
+
+def import_jsonl_dataset(speaker_name, jsonl_path):
+    speaker, error = _normalize_single_speaker_name(speaker_name, "Please specify a Speaker Name first.")
+    if error:
+        return error, gr.update(choices=get_datasets(), value=None)
+
+    jsonl_path = resolve_path(jsonl_path) if jsonl_path else ""
+    if not jsonl_path or not os.path.exists(jsonl_path):
+        return f"Error: JSONL file not found: {jsonl_path}", gr.update(choices=get_datasets(), value=None)
+
+    rows = []
+    try:
+        with open(jsonl_path, "r", encoding="utf-8-sig") as f:
+            for line_number, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                if not row.get("audio") or not row.get("text"):
+                    return f"Error: line {line_number} must contain audio and text fields.", gr.update(choices=get_datasets(), value=None)
+                row.setdefault("ref_audio", "")
+                row.setdefault("speaker_id", speaker)
+                rows.append(row)
+    except Exception as exc:
+        return f"Error reading JSONL: {exc}", gr.update(choices=get_datasets(), value=None)
+
+    if not rows:
+        return "Error: JSONL contains no samples.", gr.update(choices=get_datasets(), value=None)
+
+    default_ref_audio = rows[0].get("ref_audio") or rows[0]["audio"]
+    for row in rows:
+        if not row.get("ref_audio"):
+            row["ref_audio"] = default_ref_audio
+
+    speaker_dir = resolve_path(os.path.join("final-dataset", speaker))
+    os.makedirs(speaker_dir, exist_ok=True)
+    target_jsonl = os.path.join(speaker_dir, "tts_train.jsonl")
+    with open(target_jsonl, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    return (
+        f"Imported {len(rows)} samples to {target_jsonl}. Tokenization will prepare 24 kHz audio automatically.",
+        gr.update(choices=get_datasets(), value=[speaker]),
+    )
+
+
 # ----------------- Step 3: Tokenization -----------------
 def run_step_3(speaker_name, experiment_name, gpu_id, model_source, progress=gr.Progress()):
     speaker_names = parse_speaker_names(speaker_name)
@@ -923,6 +970,19 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
                 
                 step2_btn = gr.Button("▶️ Run Step 2: ASR Transcription", variant="primary")
                 step2_out = gr.Textbox(label="Step 2 Output", lines=1)
+
+            gr.Markdown("<br>")
+
+            with gr.Column(elem_classes="gr-group"):
+                gr.Markdown("### Import Existing JSONL")
+                gr.Markdown("Registers a ready `tts_train.jsonl` with `audio`, `text`, and optional `ref_audio` fields. Audio is converted to 24 kHz during tokenization.")
+                imported_jsonl_path = gr.Textbox(
+                    label="JSONL Path",
+                    placeholder="final-dataset/my_speaker/tts_train.jsonl",
+                    scale=3,
+                )
+                import_jsonl_btn = gr.Button("Import JSONL Dataset", variant="secondary")
+                import_jsonl_out = gr.Textbox(label="Import Output", lines=1)
                 
         with gr.Tab("2. Training (Fine-tuning)", id="training"):
             gr.Markdown("Complete data tokenization and train the Qwen3-TTS model.")
@@ -1087,6 +1147,11 @@ with gr.Blocks(title="Qwen3-TTS Easy Finetuning", css=css) as app:
 
     # Step 2
     step2_btn.click(fn=run_step_2, inputs=[global_speaker_input, asr_model, asr_source, gpu_asr], outputs=[step2_out])
+    import_jsonl_btn.click(
+        fn=import_jsonl_dataset,
+        inputs=[global_speaker_input, imported_jsonl_path],
+        outputs=[import_jsonl_out, speaker_dropdown],
+    )
 
     
     # Step 3

@@ -15,15 +15,20 @@
 # limitations under the License.
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 import gc
 import torch
+import soundfile as sf
+from pydub import AudioSegment
 
 from qwen_tts import Qwen3TTSTokenizer
 from utils import resolve_path
 
 BATCH_INFER_NUM = 32
+TARGET_SAMPLE_RATE = 24000
 
 def log_progress(progress, desc):
     print(json.dumps({"type": "progress", "progress": progress, "desc": desc}), flush=True)
@@ -33,6 +38,48 @@ def log_done(msg):
 
 def log_error(msg):
     print(json.dumps({"type": "error", "msg": msg}), flush=True)
+
+
+def _audio_needs_resample(path):
+    if os.path.splitext(path)[1].lower() != ".wav":
+        return True
+    try:
+        info = sf.info(path)
+        return info.samplerate != TARGET_SAMPLE_RATE or info.channels != 1
+    except Exception:
+        return True
+
+
+def _prepared_audio_path(source_path, cache_dir):
+    digest = hashlib.sha1(os.path.abspath(source_path).encode("utf-8")).hexdigest()[:12]
+    stem = os.path.splitext(os.path.basename(source_path))[0]
+    return os.path.join(cache_dir, f"{stem}_{digest}.wav")
+
+
+def ensure_24k_audio(path, cache_dir, memo):
+    """
+    Return a 24 kHz mono wav for tokenizer/speaker metadata.
+
+    Already-compatible wav files are used in place. Other files are materialized
+    into a deterministic cache next to the imported dataset JSONL.
+    """
+    resolved = resolve_path(path)
+    if not os.path.exists(resolved):
+        raise FileNotFoundError(f"Audio file not found: {resolved}")
+    if resolved in memo:
+        return memo[resolved]
+    if not _audio_needs_resample(resolved):
+        memo[resolved] = resolved
+        return resolved
+
+    os.makedirs(cache_dir, exist_ok=True)
+    prepared = _prepared_audio_path(resolved, cache_dir)
+    if not os.path.exists(prepared):
+        audio = AudioSegment.from_file(resolved)
+        audio = audio.set_frame_rate(TARGET_SAMPLE_RATE).set_channels(1)
+        audio.export(prepared, format="wav")
+    memo[resolved] = prepared
+    return prepared
 
 def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
     try:
@@ -49,14 +96,16 @@ def run_prepare(device, tokenizer_model_path, input_jsonl, output_jsonl):
         final_lines = []
         batch_lines = []
         batch_audios = []
+        resample_cache = os.path.join(os.path.dirname(os.path.abspath(input_jsonl)), "audio_24k")
+        prepared_audio_memo = {}
         
         yield {"type": "progress", "progress": 0.1, "desc": f"Starting tokenization of {total_count} files..."}
         
         for idx, line in enumerate(total_lines):
-            # Convert to absolute paths for tokenization and robust storage
-            line['audio'] = resolve_path(line['audio'])
+            # Convert to tokenizer-ready 24 kHz wav paths for robust storage.
+            line['audio'] = ensure_24k_audio(line['audio'], resample_cache, prepared_audio_memo)
             if line.get('ref_audio'):
-                line['ref_audio'] = resolve_path(line['ref_audio'])
+                line['ref_audio'] = ensure_24k_audio(line['ref_audio'], resample_cache, prepared_audio_memo)
                 
             batch_lines.append(line)
             batch_audios.append(line['audio'])
