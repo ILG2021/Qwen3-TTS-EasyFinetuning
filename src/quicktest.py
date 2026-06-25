@@ -23,7 +23,7 @@ def run():
         resolved_model_path,
         device_map=args.device,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
+        attn_implementation="sdpa",
     )
     print(f"Model loaded in {time.time() - start_time:.2f} seconds.")
 

@@ -630,7 +630,7 @@ def load_model(model_path, gpu_id):
                 resolved_model_path,
                 device_map=gpu_id,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2" if "cuda" in gpu_id else None,
+                attn_implementation="sdpa",
             )
             global_tts_model_path = model_path
             global_tts_device = gpu_id

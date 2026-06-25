@@ -72,21 +72,6 @@ docker compose up -d --build
 ```
 
 **使用 Python 虚拟环境**
-```bash
-# 不推荐在 Windows 上运行，该方法在Windows下并未得到积极的维护和测试，请使用Docker，这是最高效、最稳定、最便捷的推荐方法。
-
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 安装与您的 CUDA/Torch 版本匹配的 Flash Attention
-pip install flash-attn==2.8.3 --no-build-isolation
-```
-
-### 2. 使用 WebUI (最简便)
-直接启动 Gradio WebUI，在浏览器中管理整个流程：
-```bash
-python src/webui.py
 ```
 - **数据准备面板**: 上传音频 -> 切分 -> ASR 识别 -> 转换为编码。
 - **模型训练面板**: 选择数据集 -> 配置参数 -> 开启 Tensorboard -> 开始训练。

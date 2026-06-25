@@ -70,7 +70,7 @@ def load_speaker_encoder(model_id="Qwen/Qwen3-TTS-12Hz-0.6B-Base", device="cuda:
         model_id,
         device_map=device,
         torch_dtype=torch.bfloat16 if device.startswith("cuda") else torch.float32,
-        attn_implementation="flash_attention_2" if device.startswith("cuda") else "eager",
+        attn_implementation="sdpa",
     )
     se = base.model.speaker_encoder.to(device)
     del base

@@ -81,21 +81,6 @@ docker compose up -d --build
 ```
 
 **Using Python Virtual Environment**
-```bash
-# Running this directly in a Windows environment is not actively maintained and is not planned for further maintenance. Please use Docker, which is the fastest, most stable, and most efficient recommended method.
-
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Install Flash Attention matching your CUDA/Torch version
-pip install flash-attn==2.8.3 --no-build-isolation
-```
-
-### 2. Using the WebUI (Easiest)
-Launch the Gradio WebUI to manage the entire lifecycle through your browser:
-```bash
-python src/webui.py
 ```
 *   **Data Prep**: Upload raw audio -> Split -> ASR -> Tokenize.
 *   **Training**: Select dataset -> Configure settings -> Launch Tensorboard -> Start Training.

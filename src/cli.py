@@ -350,7 +350,7 @@ def cmd_infer(args):
         args.checkpoint,
         device_map=args.gpu,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2" if "cuda" in args.gpu else None,
+        attn_implementation="sdpa",
     )
     print(f"    Model loaded in {time.time() - start:.2f}s")
 
@@ -394,7 +394,7 @@ def cmd_query(args):
         args.checkpoint,
         device_map=args.gpu,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2" if "cuda" in args.gpu else None,
+        attn_implementation="sdpa",
     )
 
     print_step("Querying capabilities...")
