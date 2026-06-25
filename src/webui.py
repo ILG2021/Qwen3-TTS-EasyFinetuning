@@ -48,7 +48,7 @@ from webui_training import (
 
 def get_build_info():
     try:
-        with open("build_info.json", "r") as f:
+        with open("build_info.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except:
         return None
@@ -709,7 +709,7 @@ def apply_preset(preset_name, experiment_name):
     if preset_name == "Latest Config" and experiment_name:
         config_path = os.path.join("output", experiment_name, "training_config.json")
         if os.path.exists(config_path):
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return data.get("init_model"), data.get("lr"), data.get("epochs"), data.get("batch_size"), data.get("grad_acc")
             
