@@ -255,8 +255,14 @@ def copy_inference_support_files(model_path, checkpoint_dir, log_print):
         log_print(f"Warning: base model path is not a directory, skipping support file copy: {model_path}")
         return
 
-    def ignore_payloads(_, names):
-        return {name for name in names if should_skip_base_artifact(name)}
+    abs_model_path = os.path.normcase(os.path.abspath(model_path))
+
+    def ignore_payloads(current_dir, names):
+        # Only ignore base model payloads at the root directory level.
+        # This ensures subdirectories like 'speech_tokenizer' retain their model weights.
+        if os.path.normcase(os.path.abspath(current_dir)) == abs_model_path:
+            return {name for name in names if should_skip_base_artifact(name)}
+        return set()
 
     remove_stale_model_payloads(checkpoint_dir)
     shutil.copytree(model_path, checkpoint_dir, dirs_exist_ok=True, ignore=ignore_payloads)

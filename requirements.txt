@@ -20,3 +20,5 @@ pytz==2025.2
 matplotlib
 Pillow
 numpy
+qwen-tts==0.1.1 
+qwen-asr==0.0.6
