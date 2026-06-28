@@ -779,7 +779,7 @@ def run_train(
                         epoch_progress=epoch_progress,
                     )
                     writer.add_scalar("train/loss", loss.item(), global_step)
-                    writer.add_scalar("train/talker_loss", outputs.loss.item(), global_step)
+                    writer.add_scalar("train/talker_loss", main_loss.item(), global_step)
                     writer.add_scalar("train/sub_talker_loss", sub_talker_loss.item(), global_step)
                     writer.add_scalar("train/lr", optimizer.param_groups[0]["lr"], global_step)
                     writer.add_scalar("train/epoch", current_epoch_float, global_step)
