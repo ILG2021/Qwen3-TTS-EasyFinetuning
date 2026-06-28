@@ -729,8 +729,15 @@ def run_train(
                         outputs = unwrap_model.talker(
                             inputs_embeds=input_embeddings[:, :-1, :],
                             attention_mask=attention_mask[:, :-1],
-                            labels=codec_0_labels[:, 1:],
                             output_hidden_states=True,
+                        )
+
+                        logits = outputs.logits
+                        import torch.nn.functional as F
+                        main_loss = F.cross_entropy(
+                            logits.view(-1, logits.size(-1)),
+                            codec_0_labels[:, 1:].reshape(-1),
+                            ignore_index=-100
                         )
 
                         hidden_states = outputs.hidden_states[0][-1]
@@ -739,7 +746,7 @@ def run_train(
                         _, sub_talker_loss = unwrap_model.talker.forward_sub_talker_finetune(
                             talker_codec_ids, talker_hidden_states
                         )
-                        loss = outputs.loss + 0.3 * sub_talker_loss
+                        loss = main_loss + 0.3 * sub_talker_loss
 
                     if args.use_accelerator:
                         accelerator.backward(loss)
